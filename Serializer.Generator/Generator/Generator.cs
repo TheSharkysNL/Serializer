@@ -1,12 +1,15 @@
 ﻿using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Serializer.Extensions;
 
 namespace Serializer.Generator;
 
 [Generator]
 public class Generator : ISourceGenerator
 {
+    private const string ISerializableFullNamespace = "global::Serializer.ISerializable";
+    
     public void Execute(GeneratorExecutionContext context)
     {
         Compilation compilation = context.Compilation;
@@ -19,10 +22,15 @@ public class Generator : ISourceGenerator
         StringBuilder generatedCode = new StringBuilder(4096);
         foreach (TypeDeclarationSyntax inheritingType in inheritingTypes)
         {
-            generatedCode.Append(inheritingType.Identifier.Text);
+            if (!inheritingType.InheritsFrom(ISerializableFullNamespace, compilation, token))
+            {
+                continue;
+            }
             
             SemanticModel model = compilation.GetSemanticModel(inheritingType.SyntaxTree);
         }
+        
+        context.AddSource("test.g.cs", generatedCode.ToString());
     }
 
     public void Initialize(GeneratorInitializationContext context)

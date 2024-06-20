@@ -22,7 +22,8 @@ public class Generator : ISourceGenerator
         StringBuilder generatedCode = new StringBuilder(4096);
         foreach (TypeDeclarationSyntax inheritingType in inheritingTypes)
         {
-            if (!inheritingType.InheritsFrom(ISerializableFullNamespace, compilation, token))
+            InheritingTypes type = inheritingType.InheritsFrom(ISerializableFullNamespace, compilation, token);
+            if (type == InheritingTypes.None)
             {
                 continue;
             }

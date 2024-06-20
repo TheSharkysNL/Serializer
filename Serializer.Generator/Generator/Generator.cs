@@ -23,8 +23,6 @@ public class Generator : ISourceGenerator
             
             SemanticModel model = compilation.GetSemanticModel(inheritingType.SyntaxTree);
         }
-        
-        context.AddSource("test.g.cs", generatedCode.ToString());
     }
 
     public void Initialize(GeneratorInitializationContext context)

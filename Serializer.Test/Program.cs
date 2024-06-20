@@ -1,6 +1,8 @@
 ﻿using Microsoft.Win32.SafeHandles;
 using Serializer;
 
+Console.WriteLine("Hello World");
+
 public partial class Test : ISerializable<Test>
 {
     public static Test Deserialize(string filename)

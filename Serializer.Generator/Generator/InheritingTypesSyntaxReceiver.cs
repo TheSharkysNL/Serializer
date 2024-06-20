@@ -18,7 +18,7 @@ public class InheritingTypesSyntaxReceiver : ISyntaxReceiver
     {
         if (syntaxNode is not TypeDeclarationSyntax type || 
             type.Modifiers.IndexOf(SyntaxKind.PartialKeyword) == -1 || // check for partial keyword
-            type.BaseList is not null) 
+            type.BaseList is null) 
         {
             return;
         }

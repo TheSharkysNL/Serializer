@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Serializer.Generator;
 
 namespace Serializer.Extensions;
 
@@ -12,7 +13,7 @@ public static class TypeDeclarationSyntaxExtensions
     private static readonly SymbolDisplayFormat fullDisplayFormat = new(SymbolDisplayGlobalNamespaceStyle.Included,
         SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces);
 
-    public static bool InheritsFrom(this TypeDeclarationSyntax type, string otherType, Compilation compilation,
+    public static InheritingTypes InheritsFrom(this TypeDeclarationSyntax type, string otherType, Compilation compilation,
         CancellationToken token = default)
     {
         SemanticModel model = compilation.GetSemanticModel(type.SyntaxTree);
@@ -22,11 +23,15 @@ public static class TypeDeclarationSyntaxExtensions
         INamedTypeSymbol? typeSymbol = model.GetDeclaredSymbol(type, token);
         if (typeSymbol is null)
         {
-            return false;
+            return InheritingTypes.None;
         }
 
-        return InterfacesInheritFrom(typeSymbol, otherType, shortName) || 
-               (!token.IsCancellationRequested && BaseTypeInheritsFrom(typeSymbol, otherType, shortName));
+        return token.IsCancellationRequested switch
+        {
+            false when InterfacesInheritFrom(typeSymbol, otherType, shortName) => InheritingTypes.Interface,
+            false when BaseTypeInheritsFrom(typeSymbol, otherType, shortName) => InheritingTypes.Class,
+            _ => InheritingTypes.None
+        };
     }
 
     public static bool HasName(this TypeDeclarationSyntax syntax, string name) =>

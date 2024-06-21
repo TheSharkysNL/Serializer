@@ -9,10 +9,7 @@ namespace Serializer.Extensions;
 public static class TypeDeclarationSyntaxExtensions
 {
     private static readonly char[] typeSeparators = [ '.', ':' ]; // global::namespace.class
-
-    private static readonly SymbolDisplayFormat fullDisplayFormat = new(SymbolDisplayGlobalNamespaceStyle.Included,
-        SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces);
-
+    
     public static InheritingTypes InheritsFrom(this TypeDeclarationSyntax type, string otherType, Compilation compilation,
         CancellationToken token = default)
     {
@@ -94,7 +91,7 @@ public static class TypeDeclarationSyntaxExtensions
 
     private static bool FullNamesMatch(INamedTypeSymbol symbol, string otherType)
     {
-        return symbol.ToDisplayString(fullDisplayFormat).AsSpan()
+        return symbol.ToDisplayString(Formats.FullNamespaceFormat).AsSpan()
             .Contains(otherType.AsSpan(), StringComparison.Ordinal);
     }
 }

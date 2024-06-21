@@ -15,14 +15,19 @@ public static class TypeDeclarationSyntaxExtensions
     {
         SemanticModel model = compilation.GetSemanticModel(type.SyntaxTree);
 
-        ReadOnlySpan<char> shortName = GetName(otherType);
-
         INamedTypeSymbol? typeSymbol = model.GetDeclaredSymbol(type, token);
         if (typeSymbol is null)
         {
             return InheritingTypes.None;
         }
 
+        return typeSymbol.InheritsFrom(otherType, token);
+    }
+
+    public static InheritingTypes InheritsFrom(this ITypeSymbol typeSymbol, string otherType,
+        CancellationToken token = default)
+    {
+        ReadOnlySpan<char> shortName = GetName(otherType);
         return token.IsCancellationRequested switch
         {
             false when InterfacesInheritFrom(typeSymbol, otherType, shortName) => InheritingTypes.Interface,
@@ -49,7 +54,7 @@ public static class TypeDeclarationSyntaxExtensions
         return identifier.AsSpan(startIndex, length);
     }
 
-    private static bool BaseTypeInheritsFrom(INamedTypeSymbol symbol, string otherType, ReadOnlySpan<char> shortName)
+    private static bool BaseTypeInheritsFrom(ITypeSymbol symbol, string otherType, ReadOnlySpan<char> shortName)
     {
         while (symbol.BaseType is not null)
         {
@@ -71,7 +76,7 @@ public static class TypeDeclarationSyntaxExtensions
         return false;
     }
 
-    private static bool InterfacesInheritFrom(INamedTypeSymbol symbol, string otherType, ReadOnlySpan<char> shortName)
+    private static bool InterfacesInheritFrom(ITypeSymbol symbol, string otherType, ReadOnlySpan<char> shortName)
     {
         ImmutableArray<INamedTypeSymbol> interfaces = symbol.AllInterfaces;
 

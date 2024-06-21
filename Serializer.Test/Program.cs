@@ -6,6 +6,17 @@ Console.WriteLine("Hello World");
 public partial class Test : ISerializable<Test>
 {
     public string A { get; }
+
+    public string C
+    {
+        get
+        {
+            return B;
+        }
+    }
+
+    public string D => B;
+
     private string B;
     
     public static Test Deserialize(string filename)

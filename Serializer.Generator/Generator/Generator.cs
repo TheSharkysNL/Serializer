@@ -1,4 +1,6 @@
 ﻿using System.Collections.Immutable;
+using System.Reflection;
+using System.Reflection.Emit;
 using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -10,7 +12,19 @@ namespace Serializer.Generator;
 [Generator]
 public class Generator : ISourceGenerator
 {
-    private const string ISerializableFullNamespace = "global::Serializer.ISerializable";
+    private const string SerializableName = "ISerializable";
+    private const string SerializableFullNamespace = $"global::Serializer.{SerializableName}";
+
+    private static readonly string[][] SerializableFunctions = [
+        ["Deserialize", "static", "global::System.String"], 
+        ["Deserialize", "static", "global::System.String", "global::System.Int64"],
+        ["Deserialize", "static", "global::Microsoft.Win32.SafeHandles.SafeFileHandle"],
+        ["Deserialize", "static", "global::Microsoft.Win32.SafeHandles.SafeFileHandle", "global::System.Int64"],
+        ["Serialize", "", "global::System.String"], 
+        ["Serialize", "", "global::System.String", "global::System.Int64"],
+        ["Serialize", "", "global::Microsoft.Win32.SafeHandles.SafeFileHandle"],
+        ["Serialize", "", "global::Microsoft.Win32.SafeHandles.SafeFileHandle", "global::System.Int64"]
+    ];
     
     public void Execute(GeneratorExecutionContext context)
     {
@@ -20,11 +34,11 @@ public class Generator : ISourceGenerator
         InheritingTypesSyntaxReceiver receiver = (InheritingTypesSyntaxReceiver)context.SyntaxReceiver!;
 
         IEnumerable<TypeDeclarationSyntax> inheritingTypes = receiver.Candidates;
-
+        
         StringBuilder generatedCode = new StringBuilder(4096);
         foreach (TypeDeclarationSyntax inheritingType in inheritingTypes)
         {
-            InheritingTypes type = inheritingType.InheritsFrom(ISerializableFullNamespace, compilation, token);
+            InheritingTypes type = inheritingType.InheritsFrom(SerializableFullNamespace, compilation, token);
             if (type == InheritingTypes.None)
             {
                 continue;
@@ -40,14 +54,42 @@ public class Generator : ISourceGenerator
             
             ImmutableArray<ISymbol> members = symbol.GetMembers();
             IEnumerable<(string name, ITypeSymbol type)> serializableMembers = GetSerializableMembers(members);
+
+            foreach ((string memberName, ITypeSymbol memberType) in serializableMembers)
+            {
+                
+            }
+            
         }
         
-        context.AddSource("test.g.cs", generatedCode.ToString());
+        // context.AddSource("test.g.cs", generatedCode.ToString());
     }
 
     public void Initialize(GeneratorInitializationContext context)
     {
         context.RegisterForSyntaxNotifications(() => new InheritingTypesSyntaxReceiver());
+    }
+
+    private TypeDeclarationSyntax? GetSuperType(IEnumerable<TypeDeclarationSyntax> superTypes, Compilation compilation)
+    {
+        foreach (TypeDeclarationSyntax superType in superTypes)
+        {
+            SemanticModel model = compilation.GetSemanticModel(superType.SyntaxTree);
+
+            INamedTypeSymbol? symbol = model.GetDeclaredSymbol(superType);
+            if (symbol is null)
+            {
+                continue;
+            }
+
+            string name = symbol.ToDisplayString(Formats.FullNamespaceFormat);
+            if (name == SerializableFullNamespace)
+            {
+                return superType;
+            }
+        }
+
+        return null;
     }
 
     private IEnumerable<(string name, ITypeSymbol type)> GetSerializableMembers(ImmutableArray<ISymbol> members)
@@ -76,27 +118,45 @@ public class Generator : ISourceGenerator
         field.Name.AsSpan().Contains("<".AsSpan(), StringComparison.Ordinal);
     
     private bool IsSerializableProperty(IPropertySymbol property) =>
-        HasDefaultGetterName(property) && !property.IsStatic;
+        HasDefaultGetter(property) && !property.IsStatic;
 
-    private bool HasDefaultGetterName(IPropertySymbol property)
+    private bool HasDefaultGetter(IPropertySymbol property)
     {
         if (property.GetMethod is null)
         {
             return false;
         }
-        
-        const string getMethodName = "get_";
-        string propertyName = property.Name;
 
-        /* property name should never be more than 512 characters long
-         * https://www.codeproject.com/Questions/502735/What-27splustheplusmaxpluslengthplusofplusaplusplu
-         * so stackalloc is safe as the maximum characters is 515 which is 1030 bytes
-         */
-        Span<char> tempNameSpan = stackalloc char[getMethodName.Length + propertyName.Length]; 
+        // TODO: improve this to not use reflection within the GetPropertyBodies
+        (BlockSyntax?, ArrowExpressionClauseSyntax?) bodies = GetPropertyBodies(property.GetMethod);
+        return bodies.Item1 is null && bodies.Item2 is null;
+    }
+    
+    private Func<IMethodSymbol, (BlockSyntax?, ArrowExpressionClauseSyntax?)>? getBodies;
+    private (BlockSyntax?, ArrowExpressionClauseSyntax?) GetPropertyBodies(IMethodSymbol propertyMethod)
+    {
+        if (getBodies is not null)
+        {
+            return getBodies(propertyMethod);
+        }
         
-        getMethodName.AsSpan().CopyTo(tempNameSpan);
-        propertyName.AsSpan().CopyTo(tempNameSpan.Slice(getMethodName.Length));
+        DynamicMethod method = new DynamicMethod(string.Empty, typeof((BlockSyntax?, ArrowExpressionClauseSyntax?)), [ typeof(IMethodSymbol) ]);
+        ILGenerator generator = method.GetILGenerator();
+            
+        Type type = propertyMethod.GetType();
+        FieldInfo underlyingFieldInfo = type.GetField("_underlying", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        object? value = underlyingFieldInfo.GetValue(propertyMethod);
+        Type valueType = value.GetType();
+        PropertyInfo bodiesProperty = valueType.GetProperty("Bodies", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            
+        generator.Emit(OpCodes.Ldarg_0); // load first argument, IMethodSymbol
+        generator.Emit(OpCodes.Ldfld, underlyingFieldInfo); // load _underlying field in IMethodSymbol
+        generator.Emit(OpCodes.Call, bodiesProperty.GetMethod); // load Bodies property from the _underlying field's instance
+        generator.Emit(OpCodes.Ret); // return Bodies value
 
-        return property.GetMethod.Name.AsSpan().SequenceEqual(tempNameSpan);
+        getBodies = (Func<IMethodSymbol, (BlockSyntax?, ArrowExpressionClauseSyntax?)>)method.CreateDelegate(
+            typeof(Func<IMethodSymbol, (BlockSyntax?, ArrowExpressionClauseSyntax?)>));
+
+        return getBodies(propertyMethod);
     }
 }

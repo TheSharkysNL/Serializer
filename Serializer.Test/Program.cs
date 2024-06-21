@@ -1,5 +1,4 @@
-﻿using System.Runtime.InteropServices;
-using Microsoft.Win32.SafeHandles;
+﻿using Microsoft.Win32.SafeHandles;
 using Serializer;
 
 Console.WriteLine("Hello World");
@@ -23,6 +22,8 @@ public partial class Test : ISerializable<Test>
     private S[] S;
 
     private S s2;
+
+    private string[] strings;
     
     public static Test Deserialize(string filename)
     {
@@ -54,12 +55,12 @@ public partial class Test : ISerializable<Test>
         throw new NotImplementedException();
     }
 
-    public long Serialize(SafeFileHandle filename)
+    public long Serialize(SafeFileHandle handle)
     {
         throw new NotImplementedException();
     }
 
-    public long Serialize(SafeFileHandle filename, long offset)
+    public long Serialize(SafeFileHandle handle, long offset)
     {
         throw new NotImplementedException();
     }

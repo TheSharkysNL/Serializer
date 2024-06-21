@@ -12,6 +12,6 @@ public interface ISerializable<T>
 
     public long Serialize(string filename);
     public long Serialize(string filename, long offset);
-    public long Serialize(SafeFileHandle filename);
-    public long Serialize(SafeFileHandle filename, long offset);
+    public long Serialize(SafeFileHandle handle);
+    public long Serialize(SafeFileHandle handle, long offset);
 }

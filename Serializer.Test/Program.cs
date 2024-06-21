@@ -1,23 +1,28 @@
-﻿using Microsoft.Win32.SafeHandles;
+﻿using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
 using Serializer;
 
 Console.WriteLine("Hello World");
 
+struct S
+{
+    private char c;
+    private int b;
+}
+
 public partial class Test : ISerializable<Test>
 {
     public string A { get; }
-
-    public string C
-    {
-        get
-        {
-            return B;
-        }
-    }
-
-    public string D => B;
-
+    
     private string B;
+
+    private char[] C;
+
+    private byte[] T;
+
+    private S[] S;
+
+    private S s2;
     
     public static Test Deserialize(string filename)
     {

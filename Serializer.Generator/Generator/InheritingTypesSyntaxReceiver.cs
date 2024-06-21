@@ -7,13 +7,11 @@ using Serializer.Extensions;
 
 namespace Serializer.Generator;
 
-public class InheritingTypesSyntaxReceiver(string name) : ISyntaxReceiver
+public class InheritingTypesSyntaxReceiver : ISyntaxReceiver
 {
     public virtual IEnumerable<TypeDeclarationSyntax> Candidates => inhertingTypes;
-    public virtual IEnumerable<TypeDeclarationSyntax> SuperTypeCandidates => superTypes;
 
     protected List<TypeDeclarationSyntax> inhertingTypes = new(16);
-    protected List<TypeDeclarationSyntax> superTypes = new(8);
     
     public void OnVisitSyntaxNode(SyntaxNode syntaxNode)
     {
@@ -22,12 +20,6 @@ public class InheritingTypesSyntaxReceiver(string name) : ISyntaxReceiver
             return;
         }
 
-        if (type.HasName(name))
-        {
-            superTypes.Add(type);
-            return;
-        }
-        
         if (type.Modifiers.IndexOf(SyntaxKind.PartialKeyword) == -1 || // check for partial keyword
             type.BaseList is null) 
         {

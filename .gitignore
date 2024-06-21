@@ -1,0 +1,11 @@
+/Serializer.Generator/Properties/
+
+## don't include unnecessary compiler files
+/Serializer.Test/obj
+/Serializer.Test/bin
+
+/Serializer/bin
+/Serializer/obj
+
+/Serializer.Generator/bin
+/Serializer.Generator/obj  

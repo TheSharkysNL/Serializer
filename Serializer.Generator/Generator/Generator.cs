@@ -135,9 +135,8 @@ public class Generator : ISourceGenerator
             
             char loopCharacter = GetLoopCharacter(loopNestingLevel);
             GenerateForeachLoop(builder, loopCharacter, name, newFullTypeName);
-            
-            ReadOnlySpan<char> loopCharacterName =
-                System.Runtime.InteropServices.MemoryMarshal.CreateReadOnlySpan(ref loopCharacter, 1);
+
+            ReadOnlySpan<char> loopCharacterName = GetLoopCharacterSpan(loopCharacter);
             
             GenerateSerialization(builder, loopCharacterName, generic, newFullTypeName);
 
@@ -157,6 +156,9 @@ public class Generator : ISourceGenerator
     private static bool IsGenericIEnumerableType(ITypeSymbol type) =>
         type is INamedTypeSymbol { IsGenericType: true, TypeArguments.Length: 1 } &&
         type.IsOrInheritsFrom(IEnumerableGeneric) != InheritingTypes.None;
+
+    private static ReadOnlySpan<char> GetLoopCharacterSpan(char loopCharacter) =>
+        System.Runtime.InteropServices.MemoryMarshal.CreateReadOnlySpan(ref loopCharacter, 1);
 
     private static void GenerateList(StringBuilder builder, ReadOnlySpan<char> name, ITypeSymbol type, ReadOnlySpan<char> fullTypeName, int loopNestingLevel)
     {

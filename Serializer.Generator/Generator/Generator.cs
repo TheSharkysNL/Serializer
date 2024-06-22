@@ -167,7 +167,7 @@ public class Generator : ISourceGenerator
 
         if (fullTypeName.SequenceEqual(ListGeneric) && generic.IsUnmanagedType)
         {
-            GenerateSpanConversionWrite(builder, name, newFullTypeName, CollectionsMarshal);
+            GenerateSpanConversionWrite(builder, name, CollectionsMarshal);
                 
             builder.Append($"{OffsetParameterName} += ");
             GenerateCollectionByteSize(builder, name, newFullTypeName, "Count");
@@ -191,9 +191,7 @@ public class Generator : ISourceGenerator
         // builder.Append(';');
         
         // write 
-        builder.Append($"{RandomAccess}.Write({SafeFileHandleParameterName}, {MemoryMarshal}.Cast<");
-        builder.Append(fullTypeName);
-        builder.Append(", byte>(");
+        builder.Append($"{RandomAccess}.Write({SafeFileHandleParameterName}, {MemoryMarshal}.AsBytes(");
         builder.Append($"new {ReadOnlySpan}<");
         builder.Append(fullTypeName);
         builder.Append($">(ref {Unsafe}.AsRef<");
@@ -208,11 +206,9 @@ public class Generator : ISourceGenerator
         GenerateSizeOf(builder, fullTypeName);
     }
 
-    private static void GenerateSpanConversionWrite(StringBuilder builder, ReadOnlySpan<char> name, ReadOnlySpan<char> fullTypeName, string extensionsType)
+    private static void GenerateSpanConversionWrite(StringBuilder builder, ReadOnlySpan<char> name, string extensionsType)
     {
-        builder.Append($"{RandomAccess}.Write({SafeFileHandleParameterName}, {MemoryMarshal}.Cast<");
-        builder.Append(fullTypeName);
-        builder.Append(", byte>(");
+        builder.Append($"{RandomAccess}.Write({SafeFileHandleParameterName}, {MemoryMarshal}.AsBytes(");
         builder.Append(extensionsType);
         builder.Append(".AsSpan(");
         builder.Append(name);
@@ -223,7 +219,7 @@ public class Generator : ISourceGenerator
         string extensionsType = MemoryExtensions)
     {
         // write
-        GenerateSpanConversionWrite(builder, name, fullTypeName, extensionsType);
+        GenerateSpanConversionWrite(builder, name, extensionsType);
         
         // increase offset
         builder.Append($"{OffsetParameterName} += ");

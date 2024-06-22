@@ -4,5 +4,6 @@ public enum InheritingTypes
 {
     None,
     Class,
-    Interface
+    Interface,
+    Self,
 }

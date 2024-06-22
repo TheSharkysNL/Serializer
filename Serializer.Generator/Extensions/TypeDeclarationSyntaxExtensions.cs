@@ -24,6 +24,18 @@ public static class TypeDeclarationSyntaxExtensions
         return typeSymbol.InheritsFrom(otherType, token);
     }
 
+    public static InheritingTypes IsOrInheritsFrom(this ITypeSymbol typeSymbol, string otherType,
+        CancellationToken token = default)
+    {
+        ReadOnlySpan<char> shortName = GetName(otherType);
+        if (NamesMatch(typeSymbol, shortName, otherType))
+        {
+            return InheritingTypes.Self;
+        }
+
+        return InheritsFrom(typeSymbol, otherType, token);
+    }
+
     public static InheritingTypes InheritsFrom(this ITypeSymbol typeSymbol, string otherType,
         CancellationToken token = default)
     {
@@ -59,8 +71,7 @@ public static class TypeDeclarationSyntaxExtensions
         while (symbol.BaseType is not null)
         {
             INamedTypeSymbol baseType = symbol.BaseType;
-            if (baseType.Name.AsSpan().SequenceEqual(shortName) &&
-                FullNamesMatch(baseType, otherType))
+            if (NamesMatch(symbol, shortName, otherType))
             {
                 return true;
             }
@@ -84,8 +95,7 @@ public static class TypeDeclarationSyntaxExtensions
         {
             INamedTypeSymbol @interface = interfaces[i];
 
-            if (@interface.Name.AsSpan().SequenceEqual(shortName) &&
-                FullNamesMatch(@interface, otherType))
+            if (NamesMatch(@interface, shortName, otherType))
             {
                 return true;
             }
@@ -94,9 +104,11 @@ public static class TypeDeclarationSyntaxExtensions
         return false;
     }
 
-    private static bool FullNamesMatch(INamedTypeSymbol symbol, string otherType)
-    {
-        return symbol.ToDisplayString(Formats.FullNamespaceFormat).AsSpan()
+    private static bool NamesMatch(ITypeSymbol symbol, ReadOnlySpan<char> shortName, string otherType) =>
+        symbol.Name.AsSpan().SequenceEqual(shortName) &&
+        FullNamesMatch(symbol, otherType);
+
+    private static bool FullNamesMatch(ITypeSymbol symbol, string otherType) => 
+        symbol.ToDisplayString(Formats.FullNamespaceFormat).AsSpan()
             .Contains(otherType.AsSpan(), StringComparison.Ordinal);
-    }
 }

@@ -3,59 +3,32 @@ using Serializer;
 
 Console.WriteLine("Hello World");
 
-public partial class Test : ISerializable<Test>
+namespace Test
 {
-    public string A { get; }
-
-    public string C
+    public partial class Test : ISerializable<Test>
     {
-        get
+        public string A { get; }
+
+        public string C
         {
-            return B;
+            get
+            {
+                return B;
+            }
         }
-    }
 
-    public string D => B;
+        public string D => B;
 
-    private string B;
-    
-    public static Test Deserialize(string filename)
-    {
-        throw new NotImplementedException();
-    }
+        private string B;
 
-    public static Test Deserialize(string filename, long offset)
-    {
-        throw new NotImplementedException();
-    }
+        public static partial Test Deserialize(string filename);
+        public static partial Test Deserialize(string filename, long offset);
+        public static partial Test Deserialize(SafeFileHandle handle);
+        public static partial Test Deserialize(SafeFileHandle handle, long offset);
 
-    public static Test Deserialize(SafeFileHandle handle)
-    {
-        throw new NotImplementedException();
-    }
-
-    public static Test Deserialize(SafeFileHandle handle, long offset)
-    {
-        throw new NotImplementedException();
-    }
-
-    public long Serialize(string filename)
-    {
-        throw new NotImplementedException();
-    }
-
-    public long Serialize(string filename, long offset)
-    {
-        throw new NotImplementedException();
-    }
-
-    public long Serialize(SafeFileHandle filename)
-    {
-        throw new NotImplementedException();
-    }
-
-    public long Serialize(SafeFileHandle filename, long offset)
-    {
-        throw new NotImplementedException();
+        public partial long Serialize(string filename);
+        public partial long Serialize(string filename, long offset);
+        public partial long Serialize(SafeFileHandle filename);
+        public partial long Serialize(SafeFileHandle filename, long offset);
     }
 }

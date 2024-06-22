@@ -24,9 +24,9 @@ public class Generator : ISourceGenerator
     private const string Unsafe = "global::System.Runtime.CompilerServices.Unsafe";
     private const string CollectionsMarshal = "global::System.Runtime.InteropServices.CollectionsMarshal";
     private const string ListGeneric = "global::System.Collections.Generic.List";
-
     private const string IReadonlyListGeneric = "global::System.Collections.Generic.IReadOnlyList";
     private const string IListGeneric = "global::System.Collections.Generic.IList";
+    private const string IEnumerableGeneric = "global::System.Collections.Generic.IEnumerable";
     
     private const string SerializableName = "ISerializable";
     private const string SerializableFullNamespace = $"global::Serializer.{SerializableName}";
@@ -122,9 +122,26 @@ public class Generator : ISourceGenerator
         {
             GenerateUnmanagedArray(builder, name, Char);
         } 
-        else if (IsListType(type)) // is IList or IReadOnlyList
+        else if (IsGenericListType(type)) // is IList or IReadOnlyList
         {
             GenerateList(builder, name, type, fullTypeName, loopNestingLevel);
+        } 
+        else if (IsGenericIEnumerableType(type)) // is IEnumerable
+        {
+            Debug.Assert(type is INamedTypeSymbol { TypeArguments.Length: 1 });
+            ITypeSymbol generic = ((INamedTypeSymbol)type).TypeArguments[0];
+            
+            string newFullTypeName = generic.ToDisplayString(Formats.FullNamespaceFormat);
+            
+            char loopCharacter = GetLoopCharacter(loopNestingLevel);
+            GenerateForeachLoop(builder, loopCharacter, name, newFullTypeName);
+            
+            ReadOnlySpan<char> loopCharacterName =
+                System.Runtime.InteropServices.MemoryMarshal.CreateReadOnlySpan(ref loopCharacter, 1);
+            
+            GenerateSerialization(builder, loopCharacterName, generic, newFullTypeName);
+
+            builder.Append('}');
         }
         else
         {
@@ -132,15 +149,18 @@ public class Generator : ISourceGenerator
         }
     }
 
-    private static bool IsListType(ITypeSymbol type) =>
+    private static bool IsGenericListType(ITypeSymbol type) =>
         type is INamedTypeSymbol { IsGenericType: true, TypeArguments.Length: 1 } &&
         (type.IsOrInheritsFrom(IReadonlyListGeneric) != InheritingTypes.None ||
          type.IsOrInheritsFrom(IListGeneric) != InheritingTypes.None);
 
+    private static bool IsGenericIEnumerableType(ITypeSymbol type) =>
+        type is INamedTypeSymbol { IsGenericType: true, TypeArguments.Length: 1 } &&
+        type.IsOrInheritsFrom(IEnumerableGeneric) != InheritingTypes.None;
+
     private static void GenerateList(StringBuilder builder, ReadOnlySpan<char> name, ITypeSymbol type, ReadOnlySpan<char> fullTypeName, int loopNestingLevel)
     {
-        Debug.Assert(type is INamedTypeSymbol { TypeArguments.Length: 1 },
-            "should be true because of the IsListType function");
+        Debug.Assert(type is INamedTypeSymbol { TypeArguments.Length: 1 });
         ITypeSymbol generic = ((INamedTypeSymbol)type).TypeArguments[0];
             
         string newFullTypeName = generic.ToDisplayString(Formats.FullNamespaceFormat);
@@ -160,15 +180,15 @@ public class Generator : ISourceGenerator
     private static void GenerateReadUnmanagedType(StringBuilder builder, ReadOnlySpan<char> name,
         ReadOnlySpan<char> fullTypeName)
     {
-        ReadOnlySpan<char> pureName = GetPureName(name);
+        // ReadOnlySpan<char> pureName = GetPureName(name);
         
-        // create variable
-        builder.Append(fullTypeName);
-        builder.Append(' ');
-        builder.Append(pureName);
-        builder.Append(" = ");
-        builder.Append(name);
-        builder.Append(';');
+        // create variable. Using Unsafe.AsRef to convert to ref instead of variable
+        // builder.Append(fullTypeName);
+        // builder.Append(' ');
+        // builder.Append(pureName);
+        // builder.Append(" = ");
+        // builder.Append(name);
+        // builder.Append(';');
         
         // write 
         builder.Append($"{RandomAccess}.Write({SafeFileHandleParameterName}, {MemoryMarshal}.Cast<");
@@ -176,9 +196,11 @@ public class Generator : ISourceGenerator
         builder.Append(", byte>(");
         builder.Append($"new {ReadOnlySpan}<");
         builder.Append(fullTypeName);
-        builder.Append(">(ref ");
-        builder.Append(pureName);
-        builder.Append($")), {OffsetParameterName});");
+        builder.Append($">(ref {Unsafe}.AsRef<");
+        builder.Append(fullTypeName);
+        builder.Append(">(in ");
+        builder.Append(name);
+        builder.Append($"))), {OffsetParameterName});");
         
         // increase offset
         
@@ -289,7 +311,8 @@ public class Generator : ISourceGenerator
         indexedName[name.Length + 2] = ']';
     }
 
-    private static void GenerateForLoop(StringBuilder builder, char loopCharacter, ReadOnlySpan<char> loopVariableName, ReadOnlySpan<char> lengthMember)
+    private static void GenerateForLoop(StringBuilder builder, char loopCharacter, ReadOnlySpan<char> loopVariableName,
+        ReadOnlySpan<char> lengthMember)
     {
         builder.Append("for (int ");
         builder.Append(loopCharacter);
@@ -302,6 +325,18 @@ public class Generator : ISourceGenerator
         builder.Append("; ");
         builder.Append(loopCharacter);
         builder.Append("++){");
+    }
+
+    private static void GenerateForeachLoop(StringBuilder builder, char loopCharacter,
+        ReadOnlySpan<char> loopVariableName, ReadOnlySpan<char> fullTypeName)
+    {
+        builder.Append("foreach (");
+        builder.Append(fullTypeName);
+        builder.Append(' ');
+        builder.Append(loopCharacter);
+        builder.Append(" in ");
+        builder.Append(loopVariableName);
+        builder.Append("){");
     }
 
     private TypeDeclarationSyntax? GetSuperType(IEnumerable<TypeDeclarationSyntax> superTypes, Compilation compilation)

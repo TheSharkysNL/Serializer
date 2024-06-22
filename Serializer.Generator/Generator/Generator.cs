@@ -22,6 +22,11 @@ public class Generator : ISourceGenerator
     private const string Char = "global::System.Char";
     private const string MemoryExtensions = "global::System.MemoryExtensions";
     private const string Unsafe = "global::System.Runtime.CompilerServices.Unsafe";
+    private const string CollectionsMarshal = "global::System.Runtime.InteropServices.CollectionsMarshal";
+    private const string ListGeneric = "global::System.Collections.Generic.List";
+
+    private const string IReadonlyListGeneric = "global::System.Collections.Generic.IReadOnlyList";
+    private const string IListGeneric = "global::System.Collections.Generic.IList";
     
     private const string SerializableName = "ISerializable";
     private const string SerializableFullNamespace = $"global::Serializer.{SerializableName}";
@@ -76,7 +81,8 @@ public class Generator : ISourceGenerator
             
         }
 
-        generatedCode.ToString();
+        string code = generatedCode.ToString();
+        Console.WriteLine(code);
         // context.AddSource("test.g.cs", generatedCode.ToString());
     }
 
@@ -102,7 +108,7 @@ public class Generator : ISourceGenerator
         GenerateSerialization(builder, memberNameBuffer, type, type.ToDisplayString(Formats.FullNamespaceFormat));
     }
 
-    private void GenerateSerialization(StringBuilder builder, ReadOnlySpan<char> name, ITypeSymbol type, ReadOnlySpan<char> fullTypeName, int loopNestingLevel = 0)
+    private static void GenerateSerialization(StringBuilder builder, ReadOnlySpan<char> name, ITypeSymbol type, ReadOnlySpan<char> fullTypeName, int loopNestingLevel = 0)
     {
         if (type.Kind == SymbolKind.ArrayType) // is array
         {
@@ -115,6 +121,10 @@ public class Generator : ISourceGenerator
         else if (fullTypeName.SequenceEqual(String.AsSpan())) // is string
         {
             GenerateUnmanagedArray(builder, name, Char);
+        } 
+        else if (IsListType(type)) // is IList or IReadOnlyList
+        {
+            GenerateList(builder, name, type, fullTypeName, loopNestingLevel);
         }
         else
         {
@@ -122,7 +132,32 @@ public class Generator : ISourceGenerator
         }
     }
 
-    private void GenerateReadUnmanagedType(StringBuilder builder, ReadOnlySpan<char> name,
+    private static bool IsListType(ITypeSymbol type) =>
+        type is INamedTypeSymbol { IsGenericType: true, TypeArguments.Length: 1 } &&
+        (type.IsOrInheritsFrom(IReadonlyListGeneric) != InheritingTypes.None ||
+         type.IsOrInheritsFrom(IListGeneric) != InheritingTypes.None);
+
+    private static void GenerateList(StringBuilder builder, ReadOnlySpan<char> name, ITypeSymbol type, ReadOnlySpan<char> fullTypeName, int loopNestingLevel)
+    {
+        Debug.Assert(type is INamedTypeSymbol { TypeArguments.Length: 1 },
+            "should be true because of the IsListType function");
+        ITypeSymbol generic = ((INamedTypeSymbol)type).TypeArguments[0];
+            
+        string newFullTypeName = generic.ToDisplayString(Formats.FullNamespaceFormat);
+
+        if (fullTypeName.SequenceEqual(ListGeneric) && generic.IsUnmanagedType)
+        {
+            GenerateSpanConversionWrite(builder, name, newFullTypeName, CollectionsMarshal);
+                
+            builder.Append($"{OffsetParameterName} += ");
+            GenerateCollectionByteSize(builder, name, newFullTypeName, "Count");
+            return;
+        }
+
+        GenerateIndexableType(builder, name, generic, newFullTypeName, loopNestingLevel, "Count");
+    }
+    
+    private static void GenerateReadUnmanagedType(StringBuilder builder, ReadOnlySpan<char> name,
         ReadOnlySpan<char> fullTypeName)
     {
         ReadOnlySpan<char> pureName = GetPureName(name);
@@ -151,14 +186,22 @@ public class Generator : ISourceGenerator
         GenerateSizeOf(builder, fullTypeName);
     }
 
-    private void GenerateUnmanagedArray(StringBuilder builder, ReadOnlySpan<char> name, ReadOnlySpan<char> fullTypeName)
+    private static void GenerateSpanConversionWrite(StringBuilder builder, ReadOnlySpan<char> name, ReadOnlySpan<char> fullTypeName, string extensionsType)
     {
-        // write
         builder.Append($"{RandomAccess}.Write({SafeFileHandleParameterName}, {MemoryMarshal}.Cast<");
         builder.Append(fullTypeName);
-        builder.Append($", byte>({MemoryExtensions}.AsSpan(");
+        builder.Append(", byte>(");
+        builder.Append(extensionsType);
+        builder.Append(".AsSpan(");
         builder.Append(name);
         builder.Append($")), {OffsetParameterName});");
+    }
+
+    private static void GenerateUnmanagedArray(StringBuilder builder, ReadOnlySpan<char> name, ReadOnlySpan<char> fullTypeName,
+        string extensionsType = MemoryExtensions)
+    {
+        // write
+        GenerateSpanConversionWrite(builder, name, fullTypeName, extensionsType);
         
         // increase offset
         builder.Append($"{OffsetParameterName} += ");
@@ -195,7 +238,7 @@ public class Generator : ISourceGenerator
         return name.Slice(startIndex, length);
     }
 
-    private void GenerateArray(StringBuilder builder, ReadOnlySpan<char> name, ITypeSymbol type, ReadOnlySpan<char> fullTypeName, int loopNestingLevel)
+    private static void GenerateArray(StringBuilder builder, ReadOnlySpan<char> name, ITypeSymbol type, ReadOnlySpan<char> fullTypeName, int loopNestingLevel)
     {
         IArrayTypeSymbol arraySymbol = (IArrayTypeSymbol)type;
         if (!arraySymbol.IsSZArray)
@@ -215,24 +258,30 @@ public class Generator : ISourceGenerator
             return;
         }
 
+        GenerateIndexableType(builder, name, elementType, newFullTypeName, loopNestingLevel);
+    }
+
+    private static void GenerateIndexableType(StringBuilder builder, ReadOnlySpan<char> name, ITypeSymbol innerType,
+        ReadOnlySpan<char> fullInnerTypeName, int loopNestingLevel, string lengthMember = "Length")
+    {
         char loopCharacter = GetLoopCharacter(loopNestingLevel);
-        GenerateLoop(builder, loopCharacter, name, "Length");
+        GenerateForLoop(builder, loopCharacter, name, lengthMember);
             
         Span<char> indexedName = stackalloc char[GetIndexedNameLength(name)];
         GetIndexedName(name, loopCharacter, indexedName);
         
-        GenerateSerialization(builder, indexedName, elementType, newFullTypeName, loopNestingLevel + 1);
+        GenerateSerialization(builder, indexedName, innerType, fullInnerTypeName, loopNestingLevel + 1);
 
         builder.Append('}');
     }
-
-    private char GetLoopCharacter(int loopNestingLevel) =>
+    
+    private static char GetLoopCharacter(int loopNestingLevel) =>
         (char)('i' + loopNestingLevel);
 
-    private int GetIndexedNameLength(ReadOnlySpan<char> name) =>
+    private static int GetIndexedNameLength(ReadOnlySpan<char> name) =>
         name.Length + 3;
 
-    private void GetIndexedName(ReadOnlySpan<char> name, char loopCharacter, Span<char> indexedName)
+    private static void GetIndexedName(ReadOnlySpan<char> name, char loopCharacter, Span<char> indexedName)
     {
         name.CopyTo(indexedName);
         indexedName[name.Length] = '[';
@@ -240,7 +289,7 @@ public class Generator : ISourceGenerator
         indexedName[name.Length + 2] = ']';
     }
 
-    private void GenerateLoop(StringBuilder builder, char loopCharacter, ReadOnlySpan<char> loopVariableName, ReadOnlySpan<char> lengthMember)
+    private static void GenerateForLoop(StringBuilder builder, char loopCharacter, ReadOnlySpan<char> loopVariableName, ReadOnlySpan<char> lengthMember)
     {
         builder.Append("for (int ");
         builder.Append(loopCharacter);

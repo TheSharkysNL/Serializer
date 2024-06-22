@@ -24,6 +24,9 @@ public partial class Test : ISerializable<Test>
     private S s2;
 
     private string[] strings;
+
+    private List<string> strings2;
+    private List<char> charList;
     
     public static Test Deserialize(string filename)
     {

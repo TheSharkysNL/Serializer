@@ -134,8 +134,8 @@ public sealed class FileReader : Stream
         Unsafe.SkipInit(out byte b);
 
         Span<byte> byteSpan = new(ref b);
-        Read(byteSpan);
-        return b;
+        int readBytes = Read(byteSpan);
+        return readBytes == 0 ? -1 : b;
     }
 
     public override long Seek(long offset, SeekOrigin origin)

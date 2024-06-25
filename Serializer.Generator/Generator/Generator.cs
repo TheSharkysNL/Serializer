@@ -51,9 +51,8 @@ public class Generator : ISourceGenerator
         [SerializeFunctionName, "", SafeFileHandle, Int64],
         [SerializeFunctionName, "", Stream],
     ];
-    
-    private const string SafeFileHandleParameterName = "handle";
-    private const string OffsetParameterName = "offset";
+
+    private const string StreamParameterName = "stream";
     
     private const int MainFunctionArgumentCount = 1;
     private const string MainFunctionPostFix = "Internal";
@@ -142,6 +141,7 @@ public class Generator : ISourceGenerator
         context.RegisterForSyntaxNotifications(() => new InheritingTypesSyntaxReceiver());
     }
 
+    #region method generation
     private void GenerateMainMethod(StringBuilder builder, string methodName, string fullTypeName)
     {
         builder.Append("private ");
@@ -157,7 +157,7 @@ public class Generator : ISourceGenerator
         builder.Append(' ');
         builder.Append(methodName);
         
-        builder.Append($"<T>(T stream) where T : {Stream}");
+        builder.Append($"<T>(T {StreamParameterName}) where T : {Stream}");
         builder.Append("{");
     }
     
@@ -194,8 +194,7 @@ public class Generator : ISourceGenerator
         
         for (int i = 0; i < defaultArguments; i++)
         {
-            builder.Append(',');
-            builder.Append("default");
+            builder.Append(", default");
         }
         
         builder.Append(");");
@@ -334,7 +333,9 @@ public class Generator : ISourceGenerator
 
         return true;
     }
+    #endregion
 
+    #region serialization generation
     private void GenerateMemberSerialization(StringBuilder builder, string memberName, ITypeSymbol type)
     {
         const string @this = "this.";
@@ -580,6 +581,8 @@ public class Generator : ISourceGenerator
         builder.Append(loopVariableName);
         builder.Append("){");
     }
+    
+    #endregion
 
     private TypeDeclarationSyntax? GetSuperType(IEnumerable<TypeDeclarationSyntax> superTypes, Compilation compilation)
     {

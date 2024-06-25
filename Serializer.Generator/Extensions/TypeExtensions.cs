@@ -6,7 +6,7 @@ using Serializer.Generator;
 
 namespace Serializer.Extensions;
 
-public static class TypeDeclarationSyntaxExtensions
+public static class TypeExtensions
 {
     private static readonly char[] typeSeparators = [ '.', ':' ]; // global::namespace.class
     
@@ -14,6 +14,8 @@ public static class TypeDeclarationSyntaxExtensions
         CancellationToken token = default)
     {
         SemanticModel model = compilation.GetSemanticModel(type.SyntaxTree);
+
+        ReadOnlySpan<char> shortName = GetShortName(otherType);
 
         INamedTypeSymbol? typeSymbol = model.GetDeclaredSymbol(type, token);
         if (typeSymbol is null)
@@ -27,7 +29,7 @@ public static class TypeDeclarationSyntaxExtensions
     public static InheritingTypes IsOrInheritsFrom(this ITypeSymbol typeSymbol, string otherType,
         CancellationToken token = default)
     {
-        ReadOnlySpan<char> shortName = GetName(otherType);
+        ReadOnlySpan<char> shortName = GetShortName(otherType);
         if (NamesMatch(typeSymbol, shortName, otherType))
         {
             return InheritingTypes.Self;
@@ -39,7 +41,7 @@ public static class TypeDeclarationSyntaxExtensions
     public static InheritingTypes InheritsFrom(this ITypeSymbol typeSymbol, string otherType,
         CancellationToken token = default)
     {
-        ReadOnlySpan<char> shortName = GetName(otherType);
+        ReadOnlySpan<char> shortName = GetShortName(otherType);
         return token.IsCancellationRequested switch
         {
             false when InterfacesInheritFrom(typeSymbol, otherType, shortName) => InheritingTypes.Interface,
@@ -49,12 +51,12 @@ public static class TypeDeclarationSyntaxExtensions
     }
 
     public static bool HasName(this TypeDeclarationSyntax syntax, string name) =>
-        GetName(syntax).SequenceEqual(name.AsSpan());
+        GetShortName(syntax).SequenceEqual(name.AsSpan());
 
-    public static ReadOnlySpan<char> GetName(this TypeDeclarationSyntax syntax) =>
-        GetName(syntax.Identifier.Text);
+    public static ReadOnlySpan<char> GetShortName(this TypeDeclarationSyntax syntax) =>
+        GetShortName(syntax.Identifier.Text);
 
-    private static ReadOnlySpan<char> GetName(string identifier)
+    public static ReadOnlySpan<char> GetShortName(this string identifier)
     {
         int startIndex = identifier.LastIndexOfAny(typeSeparators) + 1;
         
@@ -108,7 +110,7 @@ public static class TypeDeclarationSyntaxExtensions
         symbol.Name.AsSpan().SequenceEqual(shortName) &&
         FullNamesMatch(symbol, otherType);
 
-    private static bool FullNamesMatch(ITypeSymbol symbol, string otherType) => 
-        symbol.ToDisplayString(Formats.FullNamespaceFormat).AsSpan()
+    public static bool FullNamesMatch(this ISymbol symbol, string otherType) => 
+        symbol.ToDisplayString(Formats.GlobalFullNamespaceFormat).AsSpan()
             .Contains(otherType.AsSpan(), StringComparison.Ordinal);
 }

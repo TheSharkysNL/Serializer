@@ -21,7 +21,8 @@ public class InheritingTypesSyntaxReceiver : ISyntaxReceiver
         }
 
         if (type.Modifiers.IndexOf(SyntaxKind.PartialKeyword) == -1 || // check for partial keyword
-            type.BaseList is null) 
+            type.BaseList is null || 
+            type.IsKind(SyntaxKind.InterfaceDeclaration)) 
         {
             return;
         }

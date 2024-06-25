@@ -35,6 +35,9 @@ public class Generator : ISourceGenerator
     private const string ICollectionGeneric = "global::System.Collections.Generic.ICollection";
     private const string IReadOnlyCollectionGeneric = "global::System.Collections.Generic.IReadOnlyCollection";
     private const string Nullable = "global::System.Nullable";
+    private const string Byte = "global::System.Byte";
+    private const string UInt16 = "global::System.UInt16";
+    private const string Int32 = "global::System.Int32";
     
     private const string SerializableName = "ISerializable";
     private const string SerializableFullNamespace = $"global::Serializer.{SerializableName}";
@@ -60,10 +63,10 @@ public class Generator : ISourceGenerator
     private const int MainFunctionArgumentCount = 1;
     private const string MainFunctionPostFix = "Internal";
 
-    private const string IsNullByte = "1";
-    private const string IsByteCountByte = "2";
-    private const string IsUShortCountByte = "3";
-    private const string IsIntCountByte = "4";
+    private const string IsNullByte = "5";
+    private const string ByteMax = "255";
+    private const string UInt16Max = "65535";
+    private const string UInt24Max = "16777215";
     
     public void Execute(GeneratorExecutionContext context)
     {
@@ -391,45 +394,20 @@ public class Generator : ISourceGenerator
         else if (fullTypeName.SequenceEqual(String.AsSpan())) // is string
         {
             // currently no encoding for fast deserialization, TODO: maybe add parameter for low byte count 
-            GenerateUnmanagedArray(builder, name, Char); 
+            GenerateUnmanagedArray(builder, name); 
         } 
         else if (IsGenericListType(type)) // is IList or IReadOnlyList
         {
             GenerateList(builder, name, type, fullTypeName, loopNestingLevel);
         } 
+        else if (IsGenericICollectionType(type)) // is ICollection
+        {
+            GenerateCollection(builder, name, type, loopNestingLevel);
+        }
         else if (IsGenericIEnumerableType(type)) // is IEnumerable
         {
-            Debug.Assert(type is INamedTypeSymbol { TypeArguments.Length: 1 });
-            ITypeSymbol generic = ((INamedTypeSymbol)type).TypeArguments[0];
-            
-            string newFullTypeName = generic.ToDisplayString(Formats.GlobalFullNamespaceFormat);
-            
-            char loopCharacter = GetLoopCharacter(loopNestingLevel);
-            GenerateForeachLoop(builder, loopCharacter, name, newFullTypeName);
-
-            ReadOnlySpan<char> loopCharacterName =
-                System.Runtime.InteropServices.MemoryMarshal.CreateReadOnlySpan(ref loopCharacter, 1);
-            
-            GenerateSerialization(builder, loopCharacterName, generic, newFullTypeName);
-
-            builder.Append('}');
-        } else if (IsGenericICollectionType(type)) // is ICollection
-        {
-            Debug.Assert(type is INamedTypeSymbol { TypeArguments.Length: 1 });
-            ITypeSymbol generic = ((INamedTypeSymbol)type).TypeArguments[0];
-            
-            string newFullTypeName = generic.ToDisplayString(Formats.GlobalFullNamespaceFormat);
-            
-            char loopCharacter = GetLoopCharacter(loopNestingLevel);
-            GenerateForeachLoop(builder, loopCharacter, name, newFullTypeName);
-
-            ReadOnlySpan<char> loopCharacterName =
-                System.Runtime.InteropServices.MemoryMarshal.CreateReadOnlySpan(ref loopCharacter, 1);
-            
-            GenerateSerialization(builder, loopCharacterName, generic, newFullTypeName);
-
-            builder.Append('}');
-        }
+            GenerateEnumerable(builder, name, type, loopNestingLevel);
+        } 
         else
         {
             throw new NotSupportedException($"type: {fullTypeName.ToString()}, currently not supported");
@@ -456,9 +434,97 @@ public class Generator : ISourceGenerator
         (type.IsOrInheritsFrom(ICollectionGeneric) != InheritingTypes.None ||
          type.IsOrInheritsFrom(IReadOnlyCollectionGeneric) != InheritingTypes.None);
 
+    private static void GenerateEnumerable(StringBuilder builder, ReadOnlySpan<char> name, ITypeSymbol type,
+        int loopNestingLevel)
+    {
+        Debug.Assert(type is INamedTypeSymbol { TypeArguments.Length: 1 });
+        ITypeSymbol generic = ((INamedTypeSymbol)type).TypeArguments[0];
+            
+        string newFullTypeName = generic.ToDisplayString(Formats.GlobalFullNamespaceFormat);
+
+        builder.Append($"{{ int count = 0; long startPosition = {StreamParameterName}.Position; {StreamParameterName}.Write({MemoryMarshal}.AsBytes(new {ReadOnlySpan}<{Int32}>(ref count)))/* write temporary 4 bytes */; ");
+            
+        char loopCharacter = GetLoopCharacter(loopNestingLevel);
+        GenerateForeachLoop(builder, loopCharacter, name, newFullTypeName);
+
+        ReadOnlySpan<char> loopCharacterName =
+            System.Runtime.InteropServices.MemoryMarshal.CreateReadOnlySpan(ref loopCharacter, 1);
+            
+        GenerateSerialization(builder, loopCharacterName, generic, newFullTypeName);
+        builder.Append("count++;");
+
+        builder.Append('}');
+
+        builder.Append(
+            $"long currentPosition = {StreamParameterName}.Position; {StreamParameterName}.Position = startPosition; {StreamParameterName}.Write({MemoryMarshal}.AsBytes(new {ReadOnlySpan}<{Int32}>(ref count))); {StreamParameterName}.Position = currentPosition;");
+        builder.Append('}');
+    }
+    
+    private static void GenerateCollection(StringBuilder builder, ReadOnlySpan<char> name, ITypeSymbol type, int loopNestingLevel)
+    {
+        Debug.Assert(type is INamedTypeSymbol { TypeArguments.Length: 1 });
+        ITypeSymbol generic = ((INamedTypeSymbol)type).TypeArguments[0];
+            
+        string newFullTypeName = generic.ToDisplayString(Formats.GlobalFullNamespaceFormat);
+
+        GenerateCountStorage(builder, name, "Count");
+            
+        char loopCharacter = GetLoopCharacter(loopNestingLevel);
+        GenerateForeachLoop(builder, loopCharacter, name, newFullTypeName);
+
+        ReadOnlySpan<char> loopCharacterName =
+            System.Runtime.InteropServices.MemoryMarshal.CreateReadOnlySpan(ref loopCharacter, 1);
+            
+        GenerateSerialization(builder, loopCharacterName, generic, newFullTypeName);
+
+        builder.Append('}');
+    }
+
+    private static void GenerateSingleCountStorage(StringBuilder builder, string varName,
+        string? numberMaxSize, string byteSize, string @if = "if")
+    {
+        if (numberMaxSize is not null)
+        {
+            builder.Append(@if);
+            builder.Append(" (");
+            builder.Append(varName);
+            builder.Append(" < ");
+            builder.Append(numberMaxSize);
+            builder.Append(") {");
+        }
+        else
+        {
+            builder.Append("else {");
+        }
+        
+        builder.Append($"{StreamParameterName}.WriteByte(");
+        builder.Append(byteSize);
+        builder.Append(");");
+        
+        builder.Append($"{StreamParameterName}.Write({MemoryMarshal}.CreateReadOnlySpan(ref {Unsafe}.As<{Int32}, {Byte}>(ref ");
+        builder.Append(varName);
+        builder.Append("), ");
+        builder.Append(byteSize);
+        builder.Append(")); }");
+    } 
+    
     private static void GenerateCountStorage(StringBuilder builder, ReadOnlySpan<char> name, string lengthName)
     {
-        
+        builder.Append('{');
+        builder.Append("int ");
+        builder.Append(lengthName);
+        builder.Append(" = ");
+        builder.Append(name);
+        builder.Append('.');
+        builder.Append(lengthName);
+        builder.Append(';');
+
+        GenerateSingleCountStorage(builder, lengthName, ByteMax, "1");
+        GenerateSingleCountStorage(builder, lengthName, UInt16Max, "2", "else if");
+        GenerateSingleCountStorage(builder, lengthName, UInt24Max, "3", "else if");
+        GenerateSingleCountStorage(builder, lengthName, null, "4");
+
+        builder.Append('}');
     }
 
     private static void GenerateList(StringBuilder builder, ReadOnlySpan<char> name, ITypeSymbol type, ReadOnlySpan<char> fullTypeName, int loopNestingLevel)
@@ -518,9 +584,11 @@ public class Generator : ISourceGenerator
         builder.Append(")));");
     }
 
-    private static void GenerateUnmanagedArray(StringBuilder builder, ReadOnlySpan<char> name, ReadOnlySpan<char> fullTypeName,
+    private static void GenerateUnmanagedArray(StringBuilder builder, ReadOnlySpan<char> name,
         string extensionsType = MemoryExtensions)
     {
+        GenerateCountStorage(builder, name, "Length");
+        
         // write
         GenerateSpanConversionWrite(builder, name, extensionsType);
         
@@ -575,7 +643,7 @@ public class Generator : ISourceGenerator
         
         if (elementType.IsUnmanagedType)
         {
-            GenerateUnmanagedArray(builder, name, newFullTypeName);
+            GenerateUnmanagedArray(builder, name);
             return;
         }
 
@@ -585,6 +653,8 @@ public class Generator : ISourceGenerator
     private static void GenerateIndexableType(StringBuilder builder, ReadOnlySpan<char> name, ITypeSymbol innerType,
         ReadOnlySpan<char> fullInnerTypeName, int loopNestingLevel, string lengthMember = "Length")
     {
+        GenerateCountStorage(builder, name, lengthMember);
+        
         char loopCharacter = GetLoopCharacter(loopNestingLevel);
         GenerateForLoop(builder, loopCharacter, name, lengthMember);
             

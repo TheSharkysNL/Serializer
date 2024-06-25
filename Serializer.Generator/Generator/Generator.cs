@@ -32,6 +32,9 @@ public class Generator : ISourceGenerator
     private const string IReadonlyListGeneric = "global::System.Collections.Generic.IReadOnlyList";
     private const string IListGeneric = "global::System.Collections.Generic.IList";
     private const string IEnumerableGeneric = "global::System.Collections.Generic.IEnumerable";
+    private const string ICollectionGeneric = "global::System.Collections.Generic.ICollection";
+    private const string IReadOnlyCollectionGeneric = "global::System.Collections.Generic.IReadOnlyCollection";
+    private const string Nullable = "global::System.Nullable";
     
     private const string SerializableName = "ISerializable";
     private const string SerializableFullNamespace = $"global::Serializer.{SerializableName}";
@@ -56,6 +59,11 @@ public class Generator : ISourceGenerator
     
     private const int MainFunctionArgumentCount = 1;
     private const string MainFunctionPostFix = "Internal";
+
+    private const string IsNullByte = "1";
+    private const string IsByteCountByte = "2";
+    private const string IsUShortCountByte = "3";
+    private const string IsIntCountByte = "4";
     
     public void Execute(GeneratorExecutionContext context)
     {
@@ -67,7 +75,6 @@ public class Generator : ISourceGenerator
         IEnumerable<TypeDeclarationSyntax> inheritingTypes = receiver.Candidates;
         
         StringBuilder generatedCode = new(4096);
-        StringBuilder tempBuilder = new(4096);
         foreach (TypeDeclarationSyntax inheritingType in inheritingTypes)
         {
             InheritingTypes type = inheritingType.InheritsFrom(SerializableFullNamespace, compilation, token);
@@ -109,9 +116,7 @@ public class Generator : ISourceGenerator
             generatedCode.Append(" } }");
         }
         
-        string temp = tempBuilder.ToString();
         string code = new CodeFormatter(generatedCode.ToString()).ToString();
-        Console.WriteLine(code);
         context.AddSource("test.g.cs", code);
     }
 
@@ -367,6 +372,8 @@ public class Generator : ISourceGenerator
 
     private static void GenerateSerialization(StringBuilder builder, ReadOnlySpan<char> name, ITypeSymbol type, ReadOnlySpan<char> fullTypeName, int loopNestingLevel = 0)
     {
+
+        
         if (type.Kind == SymbolKind.ArrayType) // is array
         {
             GenerateArray(builder, name, type, fullTypeName, loopNestingLevel);
@@ -377,13 +384,30 @@ public class Generator : ISourceGenerator
         } 
         else if (fullTypeName.SequenceEqual(String.AsSpan())) // is string
         {
-            GenerateUnmanagedArray(builder, name, Char);
+            // currently no encoding for fast deserialization, TODO: maybe add parameter for low byte count 
+            GenerateUnmanagedArray(builder, name, Char); 
         } 
         else if (IsGenericListType(type)) // is IList or IReadOnlyList
         {
             GenerateList(builder, name, type, fullTypeName, loopNestingLevel);
         } 
         else if (IsGenericIEnumerableType(type)) // is IEnumerable
+        {
+            Debug.Assert(type is INamedTypeSymbol { TypeArguments.Length: 1 });
+            ITypeSymbol generic = ((INamedTypeSymbol)type).TypeArguments[0];
+            
+            string newFullTypeName = generic.ToDisplayString(Formats.GlobalFullNamespaceFormat);
+            
+            char loopCharacter = GetLoopCharacter(loopNestingLevel);
+            GenerateForeachLoop(builder, loopCharacter, name, newFullTypeName);
+
+            ReadOnlySpan<char> loopCharacterName =
+                System.Runtime.InteropServices.MemoryMarshal.CreateReadOnlySpan(ref loopCharacter, 1);
+            
+            GenerateSerialization(builder, loopCharacterName, generic, newFullTypeName);
+
+            builder.Append('}');
+        } else if (IsGenericICollectionType(type)) // is ICollection
         {
             Debug.Assert(type is INamedTypeSymbol { TypeArguments.Length: 1 });
             ITypeSymbol generic = ((INamedTypeSymbol)type).TypeArguments[0];
@@ -414,6 +438,16 @@ public class Generator : ISourceGenerator
     private static bool IsGenericIEnumerableType(ITypeSymbol type) =>
         type is INamedTypeSymbol { IsGenericType: true, TypeArguments.Length: 1 } &&
         type.IsOrInheritsFrom(IEnumerableGeneric) != InheritingTypes.None;
+
+    private static bool IsGenericICollectionType(ITypeSymbol type) =>
+        type is INamedTypeSymbol { IsGenericType: true, TypeArguments.Length: 1 } &&
+        (type.IsOrInheritsFrom(ICollectionGeneric) != InheritingTypes.None ||
+         type.IsOrInheritsFrom(IReadOnlyCollectionGeneric) != InheritingTypes.None);
+
+    private static void GenerateCountStorage(StringBuilder builder, ReadOnlySpan<char> name, string lengthName)
+    {
+        
+    }
 
     private static void GenerateList(StringBuilder builder, ReadOnlySpan<char> name, ITypeSymbol type, ReadOnlySpan<char> fullTypeName, int loopNestingLevel)
     {

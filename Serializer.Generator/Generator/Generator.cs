@@ -1,7 +1,10 @@
 ﻿using System.Buffers;
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Reflection;
 using System.Reflection.Emit;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -13,19 +16,30 @@ namespace Serializer.Generator;
 [Generator]
 public class Generator : ISourceGenerator
 {
+    private const string FileReader = "global::Serializer.IO.FileReader";
+    private const string FileWriter = "global::Serializer.IO.FileWriter";
+    
     private const string SerializableName = "ISerializable";
     private const string SerializableFullNamespace = $"global::Serializer.{SerializableName}";
 
+    private const string DeserializeFunctionName = "Deserialize";
+    private const string SerializeFunctionName = "Serialize";
+
     private static readonly string[][] serializableFunctions = [
-        ["Deserialize", "static", "global::System.String"], 
-        ["Deserialize", "static", "global::System.String", "global::System.Int64"],
-        ["Deserialize", "static", "global::Microsoft.Win32.SafeHandles.SafeFileHandle"],
-        ["Deserialize", "static", "global::Microsoft.Win32.SafeHandles.SafeFileHandle", "global::System.Int64"],
-        ["Serialize", "", "global::System.String"], 
-        ["Serialize", "", "global::System.String", "global::System.Int64"],
-        ["Serialize", "", "global::Microsoft.Win32.SafeHandles.SafeFileHandle"],
-        ["Serialize", "", "global::Microsoft.Win32.SafeHandles.SafeFileHandle", "global::System.Int64"]
+        [DeserializeFunctionName, "static", "global::System.String"], 
+        [DeserializeFunctionName, "static", "global::System.String", "global::System.Int64"],
+        [DeserializeFunctionName, "static", "global::Microsoft.Win32.SafeHandles.SafeFileHandle"],
+        [DeserializeFunctionName, "static", "global::Microsoft.Win32.SafeHandles.SafeFileHandle", "global::System.Int64"],
+        [DeserializeFunctionName, "static", "global::System.IO.Stream"],
+        [SerializeFunctionName, "", "global::System.String"], 
+        [SerializeFunctionName, "", "global::System.String", "global::System.Int64"],
+        [SerializeFunctionName, "", "global::Microsoft.Win32.SafeHandles.SafeFileHandle"],
+        [SerializeFunctionName, "", "global::Microsoft.Win32.SafeHandles.SafeFileHandle", "global::System.Int64"],
+        [SerializeFunctionName, "", "global::System.IO.Stream"],
     ];
+
+    private const int MainFunctionArgumentCount = 1;
+    private const string MainFunctionPostFix = "Internal";
     
     public void Execute(GeneratorExecutionContext context)
     {
@@ -65,12 +79,12 @@ public class Generator : ISourceGenerator
             generatedCode.Append(" { ");
             
             ImmutableArray<ISymbol> members = symbol.GetMembers();
-            foreach ((string name, string modifiers, ReadOnlyMemory<string> parameters) in GetNonImplementMethods(members))
+            foreach ((string name, string modifiers, ReadOnlyMemory<string> parameterTypes, ImmutableArray<IParameterSymbol>? currentParameters) in GetNonImplementMethods(members))
             {
                 generatedCode.Append("public ");
                 generatedCode.Append(modifiers);
                 generatedCode.Append(' ');
-                generatedCode.Append(modifiers.Contains("static")
+                generatedCode.Append(name == DeserializeFunctionName
                     ? fullTypeName
                     : "global::System.Int64");
 
@@ -78,25 +92,18 @@ public class Generator : ISourceGenerator
                 generatedCode.Append(name);
 
                 generatedCode.Append('(');
-                if (parameters.Length != 0) // temporary
-                {
-                    generatedCode.Append(parameters.Span[0]);
-                    generatedCode.Append(' ');
-                    generatedCode.Append((char)(0 + 'a'));
-                    for (int i = 1; i < parameters.Length; i++)
-                    {
-                        generatedCode.Append(',');
-                        
-                        string paramType = parameters.Span[i];
-                        generatedCode.Append(paramType);
-                        generatedCode.Append(' ');
-                        generatedCode.Append((char)(i + 'a'));
-                    }
-                }
+                GenerateMethodParameters(generatedCode, parameterTypes, currentParameters);
 
                 generatedCode.Append(')');
-                generatedCode.Append("{ throw new global::System.NotImplementedException(); }");
+                GenerateMethodBody(generatedCode, name + "Internal", parameterTypes, currentParameters);
             }
+
+            GenerateMainMethod(generatedCode, DeserializeFunctionName + MainFunctionPostFix, fullTypeName);
+            generatedCode.Append("throw new global::System.NotImplementedException();"); // generate Deserialization
+            generatedCode.Append('}');
+            GenerateMainMethod(generatedCode, SerializeFunctionName + MainFunctionPostFix, fullTypeName);
+            generatedCode.Append("throw new global::System.NotImplementedException();"); // generate Serialization
+            generatedCode.Append('}');
             
             IEnumerable<(string name, ITypeSymbol type)> serializableMembers = GetSerializableMembers(members);
 
@@ -114,6 +121,99 @@ public class Generator : ISourceGenerator
     public void Initialize(GeneratorInitializationContext context)
     {
         context.RegisterForSyntaxNotifications(() => new InheritingTypesSyntaxReceiver());
+    }
+
+    private void GenerateMainMethod(StringBuilder builder, string methodName, string fullTypeName)
+    {
+        builder.Append("private ");
+        if (methodName == DeserializeFunctionName + MainFunctionPostFix)
+        {
+            builder.Append("static ");
+        }
+
+        builder.Append(methodName ==  DeserializeFunctionName + MainFunctionPostFix
+            ? fullTypeName
+            : "global::System.Int64");
+
+        builder.Append(' ');
+        builder.Append(methodName);
+        
+        builder.Append("<T>(T stream) where T : global::System.IO.Stream");
+        builder.Append("{");
+    }
+    
+    private void GenerateMethodBody(StringBuilder builder, string methodName, ReadOnlyMemory<string> parameterTypes, ImmutableArray<IParameterSymbol>? currentParameters)
+    {
+        Debug.Assert(parameterTypes.Length >= 1);
+
+        builder.Append(" => ");
+        builder.Append(methodName);
+        builder.Append('(');
+        
+        int defaultArguments = MainFunctionArgumentCount - parameterTypes.Length;
+
+        if (parameterTypes.Span[0] == "global::System.IO.Stream")
+        {
+            AppendParameterName(builder, 0, currentParameters);
+        }
+        else
+        {
+            builder.Append("new ");
+            builder.Append(methodName == DeserializeFunctionName ? FileReader : FileWriter);
+            builder.Append('(');
+            AppendParameterName(builder, 0, currentParameters);
+            if (parameterTypes.Length >= 2 && 
+                parameterTypes.Span[1] == "global::System.Int64")
+            {
+                builder.Append(", ");
+                AppendParameterName(builder, 1, currentParameters);
+                defaultArguments++;
+            }
+
+            builder.Append(')');
+        }
+        
+        for (int i = 0; i < defaultArguments; i++)
+        {
+            builder.Append(',');
+            builder.Append("default");
+        }
+        
+        builder.Append(");");
+    }
+    
+    private void GenerateMethodParameters(StringBuilder builder, ReadOnlyMemory<string> parameterTypes, ImmutableArray<IParameterSymbol>? currentParameters)
+    {
+        if (parameterTypes.Length == 0)
+        {
+            return;
+        }
+        
+        builder.Append(parameterTypes.Span[0]);
+        builder.Append(' ');
+        AppendParameterName(builder, 0, currentParameters);
+        for (int i = 1; i < parameterTypes.Length; i++)
+        {
+            builder.Append(',');
+                        
+            string paramType = parameterTypes.Span[i];
+            builder.Append(paramType);
+            builder.Append(' ');
+            AppendParameterName(builder, i, currentParameters);
+        }
+    }
+
+    private void AppendParameterName(StringBuilder builder, int index,
+        ImmutableArray<IParameterSymbol>? currentParameters)
+    {
+        if (currentParameters is not null)
+        {
+            builder.Append(currentParameters.Value[index].Name);
+            return;
+        }
+
+        char name = (char)(index + 'a');
+        builder.Append(name);
     }
 
     private ReadOnlySpan<char> GetNamespaceFromFullTypeName(string fullTypeName)
@@ -146,7 +246,7 @@ public class Generator : ISourceGenerator
         }
     }
 
-    private IEnumerable<(string name, string modifiers, ReadOnlyMemory<string> parameters)> GetNonImplementMethods(ImmutableArray<ISymbol> members)
+    private IEnumerable<(string name, string modifiers, ReadOnlyMemory<string> parameters, ImmutableArray<IParameterSymbol>? currentParameters)> GetNonImplementMethods(ImmutableArray<ISymbol> members)
     {
         for (int i = 0; i < serializableFunctions.Length; i++)
         {
@@ -163,11 +263,11 @@ public class Generator : ISourceGenerator
             IMethodSymbol? method = FindMethod(members, funcName, parameters.Span);
             if (method is null)
             {
-                yield return (funcName, modifiers, parameters);
+                yield return (funcName, modifiers, parameters, null);
             }
             else if (method.IsPartialDefinition)
             {
-                yield return (funcName, modifiers + " partial", parameters);
+                yield return (funcName, modifiers + " partial", parameters, method.Parameters);
             }
         }
     }

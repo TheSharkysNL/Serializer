@@ -372,7 +372,13 @@ public class Generator : ISourceGenerator
 
     private static void GenerateSerialization(StringBuilder builder, ReadOnlySpan<char> name, ITypeSymbol type, ReadOnlySpan<char> fullTypeName, int loopNestingLevel = 0)
     {
-
+        bool isNullableType = !type.IsValueType || fullTypeName.SequenceEqual(Nullable);
+        if (isNullableType)
+        {
+            builder.Append("if (");
+            builder.Append(name);
+            builder.Append(" is not null) {");
+        }
         
         if (type.Kind == SymbolKind.ArrayType) // is array
         {
@@ -427,6 +433,12 @@ public class Generator : ISourceGenerator
         else
         {
             throw new NotSupportedException($"type: {fullTypeName.ToString()}, currently not supported");
+        }
+
+        if (isNullableType)
+        {
+            builder.Append($"}} else {{ {StreamParameterName}.WriteByte({IsNullByte}); }}");
+            
         }
     }
 

@@ -82,43 +82,17 @@ public class Generator : ISourceGenerator
             {
                 continue;
             }
-            
+
             string fullTypeName = symbol.ToDisplayString(Formats.GlobalFullNamespaceFormat);
-
-            generatedCode.Append("namespace ");
-            generatedCode.Append(GetNamespaceFromFullTypeName(fullTypeName));
-            generatedCode.Append(" { ");
-
-            AddModifiers(generatedCode, inheritingType.Modifiers);
-            generatedCode.Append(inheritingType.IsKind(SyntaxKind.ClassDeclaration) ? " class " : " struct ");
-            generatedCode.Append(symbol.Name);
-            generatedCode.Append(" { ");
+            GenerateClassAndMethods(generatedCode, fullTypeName, inheritingType, symbol);
             
             ImmutableArray<ISymbol> members = symbol.GetMembers();
-            foreach ((string name, string modifiers, ReadOnlyMemory<string> parameterTypes, ImmutableArray<IParameterSymbol>? currentParameters) in GetNonImplementMethods(members))
-            {
-                generatedCode.Append("public ");
-                generatedCode.Append(modifiers);
-                generatedCode.Append(' ');
-                generatedCode.Append(name == DeserializeFunctionName
-                    ? fullTypeName
-                    : Int64);
-
-                generatedCode.Append(' ');
-                generatedCode.Append(name);
-
-                generatedCode.Append('(');
-                GenerateMethodParameters(generatedCode, parameterTypes, currentParameters);
-
-                generatedCode.Append(')');
-                GenerateMethodBody(generatedCode, name + "Internal", parameterTypes, currentParameters);
-            }
-            
             IEnumerable<(string name, ITypeSymbol type)> serializableMembers = GetSerializableMembers(members);
 
             GenerateMainMethod(generatedCode, DeserializeFunctionName + MainFunctionPostFix, fullTypeName);
             generatedCode.Append("throw new global::System.NotImplementedException();"); // generate Deserialization
             generatedCode.Append('}');
+            
             GenerateMainMethod(generatedCode, SerializeFunctionName + MainFunctionPostFix, fullTypeName);
 
             generatedCode.Append($"long initialPosition = {StreamParameterName}.Position;");
@@ -133,7 +107,7 @@ public class Generator : ISourceGenerator
             
             generatedCode.Append(" } }");
         }
-
+        
         string temp = tempBuilder.ToString();
         string code = generatedCode.ToString();
         Console.WriteLine(code);
@@ -146,6 +120,39 @@ public class Generator : ISourceGenerator
     }
 
     #region method generation
+
+    private void GenerateClassAndMethods(StringBuilder builder, string fullTypeName, TypeDeclarationSyntax inheritingType, INamedTypeSymbol symbol)
+    {
+        builder.Append("namespace ");
+        builder.Append(GetNamespaceFromFullTypeName(fullTypeName));
+        builder.Append(" { ");
+
+        AddModifiers(builder, inheritingType.Modifiers);
+        builder.Append(inheritingType.IsKind(SyntaxKind.ClassDeclaration) ? " class " : " struct ");
+        builder.Append(symbol.Name);
+        builder.Append(" { ");
+            
+        ImmutableArray<ISymbol> members = symbol.GetMembers();
+        foreach ((string name, string modifiers, ReadOnlyMemory<string> parameterTypes, ImmutableArray<IParameterSymbol>? currentParameters) in GetNonImplementMethods(members))
+        {
+            builder.Append("public ");
+            builder.Append(modifiers);
+            builder.Append(' ');
+            builder.Append(name == DeserializeFunctionName
+                ? fullTypeName
+                : Int64);
+
+            builder.Append(' ');
+            builder.Append(name);
+
+            builder.Append('(');
+            GenerateMethodParameters(builder, parameterTypes, currentParameters);
+
+            builder.Append(')');
+            GenerateMethodBody(builder, name + MainFunctionPostFix, parameterTypes, currentParameters);
+        }
+    }
+    
     private void GenerateMainMethod(StringBuilder builder, string methodName, string fullTypeName)
     {
         builder.Append("private ");

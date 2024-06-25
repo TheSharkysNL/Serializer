@@ -129,6 +129,15 @@ public sealed class FileReader : Stream
         }
     }
 
+    public override int ReadByte()
+    {
+        Unsafe.SkipInit(out byte b);
+
+        Span<byte> byteSpan = new(ref b);
+        Read(byteSpan);
+        return b;
+    }
+
     public override long Seek(long offset, SeekOrigin origin)
     {
         ValidateNotDisposed();

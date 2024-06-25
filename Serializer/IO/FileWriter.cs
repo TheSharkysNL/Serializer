@@ -124,6 +124,11 @@ public sealed class FileWriter : Stream
         }
     }
 
+    public override void WriteByte(byte value)
+    {
+        Write(new ReadOnlySpan<byte>(in value));
+    }
+
     [MemberNotNull(nameof(buffer))]
     private void EnsureBufferAllocated(int size)
     {

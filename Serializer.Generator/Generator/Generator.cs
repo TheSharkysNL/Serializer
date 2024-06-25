@@ -67,6 +67,7 @@ public class Generator : ISourceGenerator
         IEnumerable<TypeDeclarationSyntax> inheritingTypes = receiver.Candidates;
         
         StringBuilder generatedCode = new(4096);
+        StringBuilder tempBuilder = new(4096);
         foreach (TypeDeclarationSyntax inheritingType in inheritingTypes)
         {
             InheritingTypes type = inheritingType.InheritsFrom(SerializableFullNamespace, compilation, token);
@@ -125,12 +126,13 @@ public class Generator : ISourceGenerator
 
             foreach ((string memberName, ITypeSymbol memberType) in serializableMembers)
             {
-                // GenerateMemberSerialization(generatedCode, memberName, memberType);
+                GenerateMemberSerialization(tempBuilder, memberName, memberType);
             }
             
             generatedCode.Append(" } }");
         }
 
+        string temp = tempBuilder.ToString();
         string code = generatedCode.ToString();
         Console.WriteLine(code);
         context.AddSource("test.g.cs", code);
@@ -381,7 +383,8 @@ public class Generator : ISourceGenerator
             char loopCharacter = GetLoopCharacter(loopNestingLevel);
             GenerateForeachLoop(builder, loopCharacter, name, newFullTypeName);
 
-            ReadOnlySpan<char> loopCharacterName = GetLoopCharacterSpan(loopCharacter);
+            ReadOnlySpan<char> loopCharacterName =
+                System.Runtime.InteropServices.MemoryMarshal.CreateReadOnlySpan(ref loopCharacter, 1);
             
             GenerateSerialization(builder, loopCharacterName, generic, newFullTypeName);
 
@@ -402,9 +405,6 @@ public class Generator : ISourceGenerator
         type is INamedTypeSymbol { IsGenericType: true, TypeArguments.Length: 1 } &&
         type.IsOrInheritsFrom(IEnumerableGeneric) != InheritingTypes.None;
 
-    private static ReadOnlySpan<char> GetLoopCharacterSpan(char loopCharacter) =>
-        System.Runtime.InteropServices.MemoryMarshal.CreateReadOnlySpan(ref loopCharacter, 1);
-
     private static void GenerateList(StringBuilder builder, ReadOnlySpan<char> name, ITypeSymbol type, ReadOnlySpan<char> fullTypeName, int loopNestingLevel)
     {
         Debug.Assert(type is INamedTypeSymbol { TypeArguments.Length: 1 });
@@ -416,8 +416,8 @@ public class Generator : ISourceGenerator
         {
             GenerateSpanConversionWrite(builder, name, CollectionsMarshal);
                 
-            builder.Append($"{OffsetParameterName} += ");
-            GenerateCollectionByteSize(builder, name, newFullTypeName, "Count");
+            // builder.Append($"{OffsetParameterName} += ");
+            // GenerateCollectionByteSize(builder, name, newFullTypeName, "Count");
             return;
         }
 
@@ -438,28 +438,28 @@ public class Generator : ISourceGenerator
         // builder.Append(';');
         
         // write 
-        builder.Append($"{RandomAccess}.Write({SafeFileHandleParameterName}, {MemoryMarshal}.AsBytes(");
+        builder.Append($"{StreamParameterName}.Write({MemoryMarshal}.AsBytes(");
         builder.Append($"new {ReadOnlySpan}<");
         builder.Append(fullTypeName);
         builder.Append($">(ref {Unsafe}.AsRef<");
         builder.Append(fullTypeName);
         builder.Append(">(in ");
         builder.Append(name);
-        builder.Append($"))), {OffsetParameterName});");
+        builder.Append("))));");
         
         // increase offset
         
-        builder.Append($"{OffsetParameterName} += ");
-        GenerateSizeOf(builder, fullTypeName);
+        // builder.Append($"{OffsetParameterName} += ");
+        // GenerateSizeOf(builder, fullTypeName);
     }
 
     private static void GenerateSpanConversionWrite(StringBuilder builder, ReadOnlySpan<char> name, string extensionsType)
     {
-        builder.Append($"{RandomAccess}.Write({SafeFileHandleParameterName}, {MemoryMarshal}.AsBytes(");
+        builder.Append($"{StreamParameterName}.Write({MemoryMarshal}.AsBytes(");
         builder.Append(extensionsType);
         builder.Append(".AsSpan(");
         builder.Append(name);
-        builder.Append($")), {OffsetParameterName});");
+        builder.Append(")));");
     }
 
     private static void GenerateUnmanagedArray(StringBuilder builder, ReadOnlySpan<char> name, ReadOnlySpan<char> fullTypeName,
@@ -469,8 +469,8 @@ public class Generator : ISourceGenerator
         GenerateSpanConversionWrite(builder, name, extensionsType);
         
         // increase offset
-        builder.Append($"{OffsetParameterName} += ");
-        GenerateCollectionByteSize(builder, name, fullTypeName, "Length");
+        // builder.Append($"{OffsetParameterName} += ");
+        // GenerateCollectionByteSize(builder, name, fullTypeName, "Length");
     }
 
     private static void GenerateCollectionByteSize(StringBuilder builder, ReadOnlySpan<char> name,

@@ -16,8 +16,7 @@ public class Generator : ISourceGenerator
 {
     private const string FileReader = "global::Serializer.IO.FileReader";
     private const string FileWriter = "global::Serializer.IO.FileWriter";
-
-    private const string RandomAccess = "global::System.IO.RandomAccess";
+    
     private const string String = "global::System.String";
     private const string Int64 = "global::System.Int64";
     private const string SafeFileHandle = "global::Microsoft.Win32.SafeHandles.SafeFileHandle";
@@ -114,20 +113,23 @@ public class Generator : ISourceGenerator
                 generatedCode.Append(')');
                 GenerateMethodBody(generatedCode, name + "Internal", parameterTypes, currentParameters);
             }
+            
+            IEnumerable<(string name, ITypeSymbol type)> serializableMembers = GetSerializableMembers(members);
 
             GenerateMainMethod(generatedCode, DeserializeFunctionName + MainFunctionPostFix, fullTypeName);
             generatedCode.Append("throw new global::System.NotImplementedException();"); // generate Deserialization
             generatedCode.Append('}');
             GenerateMainMethod(generatedCode, SerializeFunctionName + MainFunctionPostFix, fullTypeName);
-            generatedCode.Append("throw new global::System.NotImplementedException();"); // generate Serialization
-            generatedCode.Append('}');
-            
-            IEnumerable<(string name, ITypeSymbol type)> serializableMembers = GetSerializableMembers(members);
 
+            generatedCode.Append($"long initialPosition = {StreamParameterName}.Position;");
             foreach ((string memberName, ITypeSymbol memberType) in serializableMembers)
             {
-                GenerateMemberSerialization(tempBuilder, memberName, memberType);
+                GenerateMemberSerialization(generatedCode, memberName, memberType);
             }
+            generatedCode.Append($"return {StreamParameterName}.Position - initialPosition;");
+            
+            generatedCode.Append('}');
+            
             
             generatedCode.Append(" } }");
         }

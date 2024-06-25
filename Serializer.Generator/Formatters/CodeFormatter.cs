@@ -31,6 +31,10 @@ public readonly struct CodeFormatter(string code) : IFormattable
             }
             
             ReadOnlySpan<char> span = code.AsSpan(previousIndex, index - previousIndex);
+            if (span.Contains("for", StringComparison.Ordinal) && character != '{')
+            {
+                continue;
+            }
             builder.Append(span.Trim());
             if (character != ';')
             {

@@ -8,6 +8,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Serializer.Extensions;
+using Serializer.Formatters;
 
 namespace Serializer.Generator;
 
@@ -109,7 +110,7 @@ public class Generator : ISourceGenerator
         }
         
         string temp = tempBuilder.ToString();
-        string code = generatedCode.ToString();
+        string code = new CodeFormatter(generatedCode.ToString()).ToString();
         Console.WriteLine(code);
         context.AddSource("test.g.cs", code);
     }

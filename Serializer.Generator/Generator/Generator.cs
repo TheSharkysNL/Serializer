@@ -7,6 +7,7 @@ using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Serializer.Builders;
 using Serializer.Extensions;
 using Serializer.Formatters;
 
@@ -77,7 +78,7 @@ public class Generator : ISourceGenerator
 
         IEnumerable<TypeDeclarationSyntax> inheritingTypes = receiver.Candidates;
         
-        StringBuilder generatedCode = new(4096);
+        CodeBuilder builder = new(4096);
         foreach (TypeDeclarationSyntax inheritingType in inheritingTypes)
         {
             InheritingTypes type = inheritingType.InheritsFrom(SerializableFullNamespace, compilation, token);
@@ -95,31 +96,39 @@ public class Generator : ISourceGenerator
             }
 
             string fullTypeName = symbol.ToDisplayString(Formats.GlobalFullNamespaceFormat);
-            GenerateClassAndMethods(generatedCode, fullTypeName, inheritingType, symbol);
-            
-            ImmutableArray<ISymbol> members = symbol.GetMembers();
-            IEnumerable<(string name, ITypeSymbol type)> serializableMembers = GetSerializableMembers(members);
-
-            GenerateMainMethod(generatedCode, DeserializeFunctionName + MainFunctionPostFix, fullTypeName);
-            generatedCode.Append("throw new global::System.NotImplementedException();"); // generate Deserialization
-            generatedCode.Append('}');
-            
-            GenerateMainMethod(generatedCode, SerializeFunctionName + MainFunctionPostFix, fullTypeName);
-
-            generatedCode.Append($"long initialPosition = {StreamParameterName}.Position;");
-            foreach ((string memberName, ITypeSymbol memberType) in serializableMembers)
+            GenerateClassAndMethods(builder, fullTypeName, inheritingType, symbol, builder =>
             {
-                GenerateMemberSerialization(generatedCode, memberName, memberType);
-            }
-            generatedCode.Append($"return {StreamParameterName}.Position - initialPosition;");
+                GenerateMainMethod(builder, DeserializeFunctionName + MainFunctionPostFix, fullTypeName, codeBuilder =>
+                {
+                    codeBuilder.AppendThrow(expressionBuilder =>
+                    {
+                        expressionBuilder.AppendNewObject("global::System.NotImplementedException");
+                    });
+                });
             
-            generatedCode.Append('}');
-            
-            
-            generatedCode.Append(" } }");
+                GenerateMainMethod(builder, SerializeFunctionName + MainFunctionPostFix, fullTypeName, codeBuilder =>
+                {
+                    ImmutableArray<ISymbol> members = symbol.GetMembers();
+                    IEnumerable<(string name, ITypeSymbol type)> serializableMembers = GetSerializableMembers(members);
+
+                    codeBuilder.AppendVariable("initialPosition", Int64,
+                        expressionBuilder => expressionBuilder.AppendDotExpression(StreamParameterName, "Position"));
+                    foreach ((string memberName, ITypeSymbol memberType) in serializableMembers)
+                    {
+                        GenerateMemberSerialization(codeBuilder.GetUnderlyingBuilder(), memberName, memberType);
+                    }
+                    codeBuilder.AppendReturn(expressionBuilder =>
+                    {
+                        expressionBuilder.AppendBinaryExpression(expressionBuilder =>
+                                expressionBuilder.AppendDotExpression(StreamParameterName, "Position"), 
+                            "-",
+                            "initialPosition");
+                    });
+                });
+            });
         }
         
-        string code = new CodeFormatter(generatedCode.ToString()).ToString();
+        string code = new CodeFormatter(builder.ToString()).ToString();
         context.AddSource("test.g.cs", code);
     }
 
@@ -130,128 +139,90 @@ public class Generator : ISourceGenerator
 
     #region method generation
 
-    private void GenerateClassAndMethods(StringBuilder builder, string fullTypeName, TypeDeclarationSyntax inheritingType, INamedTypeSymbol symbol)
+    private void GenerateClassAndMethods(CodeBuilder builder, string fullTypeName, TypeDeclarationSyntax inheritingType, INamedTypeSymbol symbol, Action<CodeBuilder> callback)
     {
-        builder.Append("namespace ");
-        builder.Append(GetNamespaceFromFullTypeName(fullTypeName));
-        builder.Append(" { ");
-
-        AddModifiers(builder, inheritingType.Modifiers);
-        builder.Append(inheritingType.IsKind(SyntaxKind.ClassDeclaration) ? " class " : " struct ");
-        builder.Append(symbol.Name);
-        builder.Append(" { ");
-            
-        ImmutableArray<ISymbol> members = symbol.GetMembers();
-        foreach ((string name, string modifiers, ReadOnlyMemory<string> parameterTypes, ImmutableArray<IParameterSymbol>? currentParameters) in GetNonImplementMethods(members))
+        builder.AppendNamespace(GetNamespaceFromFullTypeName(fullTypeName), builder =>
         {
-            builder.Append("public ");
-            builder.Append(modifiers);
-            builder.Append(' ');
-            builder.Append(name == DeserializeFunctionName
-                ? fullTypeName
-                : Int64);
+            string typeName = inheritingType.IsKind(SyntaxKind.ClassDeclaration) ? "class" : "struct";
+            builder.AppendType(symbol.Name, typeName, GetModifiers(inheritingType.Modifiers), builder =>
+            {
+                ImmutableArray<ISymbol> members = symbol.GetMembers();
+                foreach ((string name, string modifiers, ReadOnlyMemory<string> parameterTypes, ImmutableArray<IParameterSymbol>? currentParameters) in GetNonImplementMethods(members))
+                {
+                    string returnType = GetReturnType(name, fullTypeName);
+                    builder.AppendMethod(name, returnType, GetMethodParameters(parameterTypes, currentParameters), "public " + modifiers,
+                        builder => GenerateMethodBody(builder, name + MainFunctionPostFix, parameterTypes, currentParameters));
+                }
 
-            builder.Append(' ');
-            builder.Append(name);
-
-            builder.Append('(');
-            GenerateMethodParameters(builder, parameterTypes, currentParameters);
-
-            builder.Append(')');
-            GenerateMethodBody(builder, name + MainFunctionPostFix, parameterTypes, currentParameters);
-        }
+                callback(builder);
+            });
+        });
     }
     
-    private void GenerateMainMethod(StringBuilder builder, string methodName, string fullTypeName)
+    private void GenerateMainMethod(CodeBuilder builder, string methodName, string fullTypeName, Action<CodeBuilder> callback)
     {
-        builder.Append("private ");
-        if (methodName == DeserializeFunctionName + MainFunctionPostFix)
-        {
-            builder.Append("static ");
-        }
+        Generic[] generics = [new("T", [Stream])];
 
-        builder.Append(methodName ==  DeserializeFunctionName + MainFunctionPostFix
+        string returnType = GetReturnType(methodName, fullTypeName);
+
+        string[] modifiers = IsDeserializeFunction(methodName) 
+            ? ["private", "static"] 
+            : ["private"];
+
+        builder.AppendGenericMethod(methodName, returnType, [("T", StreamParameterName)], modifiers, generics,
+            callback);
+    }
+
+    private string GetReturnType(ReadOnlySpan<char> methodName, string fullTypeName) =>
+        IsDeserializeFunction(methodName)
             ? fullTypeName
-            : Int64);
-
-        builder.Append(' ');
-        builder.Append(methodName);
-        
-        builder.Append($"<T>(T {StreamParameterName}) where T : {Stream}");
-        builder.Append("{");
-    }
+            : Int64;
     
-    private void GenerateMethodBody(StringBuilder builder, string methodName, ReadOnlyMemory<string> parameterTypes, ImmutableArray<IParameterSymbol>? currentParameters)
+    private void GenerateMethodBody(CodeBuilder builder, string methodName, ReadOnlyMemory<string> parameterTypes, ImmutableArray<IParameterSymbol>? currentParameters)
     {
         Debug.Assert(parameterTypes.Length >= 1);
-
-        builder.Append(" => ");
-        builder.Append(methodName);
-        builder.Append('(');
         
-        int defaultArguments = MainFunctionArgumentCount - parameterTypes.Length;
-
-        if (parameterTypes.Span[0] == Stream)
+        builder.AppendReturn(expressionBuilder =>
         {
-            AppendParameterName(builder, 0, currentParameters);
-        }
-        else
-        {
-            builder.Append("new ");
-            builder.Append(methodName == DeserializeFunctionName ? FileReader : FileWriter);
-            builder.Append('(');
-            AppendParameterName(builder, 0, currentParameters);
-            if (parameterTypes.Length >= 2 && 
-                parameterTypes.Span[1] == Int64)
+            expressionBuilder.AppendMethodCall(methodName, (expressionBuilder, index) =>
             {
-                builder.Append(", ");
-                AppendParameterName(builder, 1, currentParameters);
-                defaultArguments++;
-            }
-
-            builder.Append(')');
-        }
-        
-        for (int i = 0; i < defaultArguments; i++)
-        {
-            builder.Append(", default");
-        }
-        
-        builder.Append(");");
-    }
-    
-    private void GenerateMethodParameters(StringBuilder builder, ReadOnlyMemory<string> parameterTypes, ImmutableArray<IParameterSymbol>? currentParameters)
-    {
-        if (parameterTypes.Length == 0)
-        {
-            return;
-        }
-        
-        builder.Append(parameterTypes.Span[0]);
-        builder.Append(' ');
-        AppendParameterName(builder, 0, currentParameters);
-        for (int i = 1; i < parameterTypes.Length; i++)
-        {
-            builder.Append(',');
-                        
-            string paramType = parameterTypes.Span[i];
-            builder.Append(paramType);
-            builder.Append(' ');
-            AppendParameterName(builder, i, currentParameters);
-        }
+                if (parameterTypes.Span[0] == Stream)
+                {
+                    expressionBuilder.AppendVariable(GetParameterName(0, currentParameters));
+                }
+                else
+                {
+                    string objectName = IsDeserializeFunction(methodName) ? FileReader : FileWriter;
+                    expressionBuilder.AppendNewObject(objectName,
+                        (expressionBuilder, index) =>
+                            expressionBuilder.AppendVariable(GetParameterName(index, currentParameters)),
+                        parameterTypes.Length);
+                }
+            }, MainFunctionArgumentCount);
+        });
     }
 
-    private void AppendParameterName(StringBuilder builder, int index,
+    private bool IsDeserializeFunction(ReadOnlySpan<char> name) =>
+        name.StartsWith(DeserializeFunctionName.AsSpan());
+
+    private IEnumerable<(string type, string name)> GetMethodParameters(ReadOnlyMemory<string> parameterTypes,
         ImmutableArray<IParameterSymbol>? currentParameters)
+    {
+        for (int i = 0; i < parameterTypes.Length; i++)
+        {
+            yield return (parameterTypes.Span[i], GetParameterName(i, currentParameters));
+        }
+    }
+
+    private static string GetParameterName(int index, ImmutableArray<IParameterSymbol>? currentParameters)
     {
         if (currentParameters is not null)
         {
-            builder.Append(currentParameters.Value[index].Name);
-            return;
+            return currentParameters.Value[index].Name;
         }
 
         char name = (char)(index + 'a');
-        builder.Append(name);
+        return name.ToString();
     }
 
     private ReadOnlySpan<char> GetNamespaceFromFullTypeName(string fullTypeName)
@@ -269,18 +240,11 @@ public class Generator : ISourceGenerator
         return fullTypeName.AsSpan(startIndex, length);
     }
 
-    private void AddModifiers(StringBuilder builder, SyntaxTokenList modifiers)
+    private IEnumerable<string> GetModifiers(SyntaxTokenList modifiers)
     {
-        if (modifiers.Count == 0)
+        for (int i = 0; i < modifiers.Count; i++)
         {
-            return;
-        }
-
-        builder.Append(modifiers[0].Text);
-        for (int i = 1; i < modifiers.Count; i++)
-        {
-            builder.Append(' ');
-            builder.Append(modifiers[i].Text);
+            yield return modifiers[i].Text;
         }
     }
 
@@ -356,7 +320,7 @@ public class Generator : ISourceGenerator
     #endregion
 
     #region serialization generation
-    private void GenerateMemberSerialization(StringBuilder builder, string memberName, ITypeSymbol type)
+    private void GenerateMemberSerialization(StringBuilder builder, string memberName, ITypeSymbol type) // TODO: change from StringBuilder to CodeBuilder
     {
         const string @this = "this.";
 
@@ -389,6 +353,10 @@ public class Generator : ISourceGenerator
         }
         else if (type.IsUnmanagedType) // is unmanaged type
         {
+            if (isNullableType)
+            {
+                builder.Append($"{StreamParameterName}.WriteByte(0);");
+            }
             GenerateReadUnmanagedType(builder, name, fullTypeName);
         } 
         else if (fullTypeName.SequenceEqual(String.AsSpan())) // is string
@@ -709,28 +677,6 @@ public class Generator : ISourceGenerator
     }
     
     #endregion
-
-    private TypeDeclarationSyntax? GetSuperType(IEnumerable<TypeDeclarationSyntax> superTypes, Compilation compilation)
-    {
-        foreach (TypeDeclarationSyntax superType in superTypes)
-        {
-            SemanticModel model = compilation.GetSemanticModel(superType.SyntaxTree);
-
-            INamedTypeSymbol? symbol = model.GetDeclaredSymbol(superType);
-            if (symbol is null)
-            {
-                continue;
-            }
-
-            string name = symbol.ToDisplayString(Formats.GlobalFullNamespaceFormat);
-            if (name == SerializableFullNamespace)
-            {
-                return superType;
-            }
-        }
-
-        return null;
-    }
 
     private IEnumerable<(string name, ITypeSymbol type)> GetSerializableMembers(ImmutableArray<ISymbol> members)
     {

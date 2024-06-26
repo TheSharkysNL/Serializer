@@ -43,7 +43,8 @@ public readonly struct CodeFormatter(string code) : IFormattable
             }
             builder.Append(character);
 
-            if (NextNonWhitespaceCharacter(code, index + 1) != '}')
+            char nextCharacter = NextNonWhitespaceCharacter(code, index + 1);
+            if (nextCharacter is not ('}' or '{'))
             {
                 builder.Append('\n');
             }

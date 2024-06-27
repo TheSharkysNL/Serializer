@@ -2,6 +2,10 @@
 using Serializer;
 
 Console.WriteLine("Hello World");
+MemoryStream stream = new();
+Test.Test a = new();
+a.Serialize(stream);
+Console.WriteLine();
 
 namespace Test
 {
@@ -10,29 +14,37 @@ namespace Test
         private char c;
         private int b;
     }
+
+    class B
+    {
+        private char t;
+        public string d = "";
+    }
     
     public partial class Test : ISerializable<Test>
     {
-        public string A { get; }
+        public string A { get; } = "";
     
-        private string B;
+        private string B = "";
 
-        private char[] C;
+        private char[] C = [];
 
-        private byte[] T;
+        private byte[] T = [];
 
-        private S[] S;
+        private S[] S = [];
 
-        private S s2;
+        private S s2 = default;
 
-        private string[] strings;
+        private string[] strings = [];
 
-        private List<string> strings2;
-        private List<char> charList;
+        private List<string> strings2 = [];
+        private List<char> charList = [];
 
-        private IEnumerable<string> enumerable;
-        private IEnumerable<char> enumerable2;
+        private IEnumerable<string> enumerable = [];
+        private ICollection<char> collection = [];
+        private IReadOnlyCollection<string> collection2 = [];
 
+        private B b = new B();
 
         public static partial Test Deserialize(string filename);
         public static partial Test Deserialize(string filename, long offset);

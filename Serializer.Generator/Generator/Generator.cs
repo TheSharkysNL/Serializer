@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Reflection;
 using System.Reflection.Emit;
+using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -23,7 +24,7 @@ public class Generator : ISourceGenerator
     private const string Int64 = "global::System.Int64";
     private const string SafeFileHandle = "global::Microsoft.Win32.SafeHandles.SafeFileHandle";
     private const string Stream = "global::System.IO.Stream";
-    private const string MemoryMarshal = "global::System.Runtime.InteropServices.MemoryMarshal";
+    private const string MemoryMarshalType = "global::System.Runtime.InteropServices.MemoryMarshal";
     private const string ReadOnlySpan = "global::System.ReadOnlySpan";
     private const string Char = "global::System.Char";
     private const string MemoryExtensions = "global::System.MemoryExtensions";
@@ -39,6 +40,8 @@ public class Generator : ISourceGenerator
     private const string Byte = "global::System.Byte";
     private const string UInt16 = "global::System.UInt16";
     private const string Int32 = "global::System.Int32";
+    private const string Object = "global::System.Object";
+    private const string BindingFlagsType = "global::System.Reflection.BindingFlags";
     
     private const string SerializableName = "ISerializable";
     private const string SerializableFullNamespace = $"global::Serializer.{SerializableName}";
@@ -68,6 +71,8 @@ public class Generator : ISourceGenerator
     private const string ByteMax = "255";
     private const string UInt16Max = "65535";
     private const string UInt24Max = "16777215";
+
+    private const string BindingFlagsInstancePrivate = $"{BindingFlagsType}.Instance | {BindingFlagsType}.NonPublic";
     
     public void Execute(GeneratorExecutionContext context)
     {
@@ -108,15 +113,11 @@ public class Generator : ISourceGenerator
             
                 GenerateMainMethod(builder, SerializeFunctionName + MainFunctionPostFix, fullTypeName, codeBuilder =>
                 {
-                    ImmutableArray<ISymbol> members = symbol.GetMembers();
-                    IEnumerable<(string name, ITypeSymbol type)> serializableMembers = GetSerializableMembers(members);
-
                     codeBuilder.AppendVariable("initialPosition", Int64,
                         expressionBuilder => expressionBuilder.AppendDotExpression(StreamParameterName, "Position"));
-                    foreach ((string memberName, ITypeSymbol memberType) in serializableMembers)
-                    {
-                        GenerateMemberSerialization(codeBuilder, memberName, memberType);
-                    }
+
+                    GenerateSymbolSerialization(codeBuilder, symbol);
+                    
                     codeBuilder.AppendReturn(expressionBuilder =>
                     {
                         expressionBuilder.AppendBinaryExpression(expressionBuilder =>
@@ -320,24 +321,95 @@ public class Generator : ISourceGenerator
     #endregion
 
     #region serialization generation
-    private void GenerateMemberSerialization(CodeBuilder builder, string memberName, ITypeSymbol type) // TODO: change from StringBuilder to CodeBuilder
-    {
-        const string @this = "this.";
 
-        /*
-         * member names can only be 512 character long
-         * https://www.codeproject.com/Questions/502735/What-27splustheplusmaxpluslengthplusofplusaplusplu
-         * so this is safe as it can only be a maximum of 517 characters long which is 1034 bytes
-         */
-        char[] memberNameBuffer = new char[memberName.Length + @this.Length];
-        
-        @this.AsSpan().CopyTo(memberNameBuffer);
-        memberName.AsSpan().CopyTo(memberNameBuffer.AsSpan(@this.Length));
+    private static void GenerateSymbolSerialization(CodeBuilder builder, ITypeSymbol symbol, ReadOnlyMemory<char> namePrefix = default)
+    {
+        ImmutableArray<ISymbol> members = symbol.GetMembers();
+        IEnumerable<ISymbol> serializableMembers = GetSerializableMembers(members);
+
+        foreach (ISymbol member in serializableMembers)
+        {
+            string memberName = member.Name;
+            ITypeSymbol memberType = GetMemberType(member);
+            
+            ReadOnlyMemory<char> prefix = namePrefix.IsEmpty ? "this".AsMemory() : namePrefix;
+            if (!namePrefix.IsEmpty && !member.DeclaredAccessibility.HasFlag(Accessibility.Public))
+            {
+                GenerateReflectionGetObject(builder, member.Name, memberType, member, prefix, builder =>
+                    GenerateMemberSerialization(builder, member.Name, memberType, ReadOnlyMemory<char>.Empty));
+                continue;
+            }
+            GenerateMemberSerialization(builder, memberName, memberType, prefix);
+        }
+    }
+
+    private static ITypeSymbol GetMemberType(ISymbol member)
+    {
+        if (member is IFieldSymbol field)
+        {
+            return field.Type;
+        }
+        Debug.Assert(member is IPropertySymbol);
+        return ((IPropertySymbol)member).Type;
+    }
+
+    private static void GenerateReflectionGetObject(CodeBuilder builder, string variableName, ITypeSymbol variableType,
+        ISymbol member, ReadOnlyMemory<char> prefix, Action<CodeBuilder> callback)
+    {
+        builder.AppendScope(builder =>
+        {
+            ITypeSymbol containingType = member.ContainingType;
+            
+            builder.AppendVariableCast(variableName, variableType.ToDisplayString(Formats.GlobalFullNamespaceFormat),
+                expressionBuilder =>
+                {
+                    expressionBuilder.AppendDotExpression(
+                        (left) => left.AppendTypeof(containingType.ToDisplayString(Formats.GlobalFullNamespaceFormat)),
+                        (right) =>
+                        {
+                            right.AppendDotExpression(left =>
+                            {
+                                string method = member.Kind == SymbolKind.Field ? "GetField" : "GetProperty";
+                                left.AppendMethodCall(method, (parameterBuilder, index) =>
+                                {
+                                    if (index == 0)
+                                    {
+                                        parameterBuilder.AppendString(member.Name);
+                                    }
+                                    else
+                                    {
+                                        parameterBuilder.AppendValue(BindingFlagsInstancePrivate);
+                                    }
+                                }, 2);
+                            }, right =>
+                            {
+                                right.AppendMethodCall("GetValue", (parameterBuilder, index) => 
+                                    parameterBuilder.AppendValue(prefix.Span), 1);
+                            });
+                        });
+                });
+            
+            callback(builder);
+        });
+    }
+    
+    private static void GenerateMemberSerialization(CodeBuilder builder, string memberName, ITypeSymbol type, ReadOnlyMemory<char> namePrefix)
+    {
+        int length = memberName.Length + namePrefix.Length + (namePrefix.IsEmpty ? 0 : 1);
+        char[] memberNameBuffer = new char[length];
+
+        if (!namePrefix.IsEmpty)
+        {
+            namePrefix.CopyTo(memberNameBuffer);
+            memberNameBuffer[namePrefix.Length] = '.';
+        }
+
+        memberName.AsSpan().CopyTo(memberNameBuffer.AsSpan(namePrefix.Length + (namePrefix.IsEmpty ? 0 : 1)));
         
         GenerateSerialization(builder, memberNameBuffer, type, type.ToDisplayString(Formats.GlobalFullNamespaceFormat).AsMemory());
     }
 
-    private static void GenerateTypeSerialization(CodeBuilder builder, char[] name, ITypeSymbol type, ReadOnlyMemory<char> fullTypeName, bool isNullableType, int loopNestingLevel = 0)
+    private static void GenerateSerializationInternal(CodeBuilder builder, char[] name, ITypeSymbol type, ReadOnlyMemory<char> fullTypeName, bool isNullableType, int loopNestingLevel = 0)
     {
         if (type.Kind == SymbolKind.ArrayType) // is array
         {
@@ -358,21 +430,25 @@ public class Generator : ISourceGenerator
             // currently no encoding for fast deserialization, TODO: maybe add parameter to indicate that the object should be serialized with the least amount of bytes possible
             GenerateUnmanagedArray(builder, name); 
         } 
-        else if (IsGenericListType(type)) // is IList or IReadOnlyList
+        else if (IsGenericListType(type)) // is IList<T> or IReadOnlyList<T>
         {
             GenerateList(builder, name, type, fullTypeName, loopNestingLevel);
         } 
-        else if (IsGenericICollectionType(type)) // is ICollection
+        else if (IsGenericICollectionType(type)) // is ICollection<T> or IReadOnlyCollection<T>
         {
             GenerateCollection(builder, name, type, loopNestingLevel);
         }
-        else if (IsGenericIEnumerableType(type)) // is IEnumerable
+        else if (IsGenericIEnumerableType(type)) // is IEnumerable<T>
         {
             GenerateEnumerable(builder, name, type, loopNestingLevel);
         } 
+        else if (type.FullNamesMatch(Object)) // is Object
+        {
+            throw new NotSupportedException($"object types are currently not supported"); // TODO: get runtime parameters and fields
+        }
         else
         {
-            throw new NotSupportedException($"type: {fullTypeName.ToString()}, currently not supported");
+            GenerateSymbolSerialization(builder, type, name);
         }
     }
 
@@ -382,7 +458,7 @@ public class Generator : ISourceGenerator
         if (isNullableType)
         {
             builder.AppendIf<object?>(name, null,
-                builder => GenerateTypeSerialization(builder, name, type, fullTypeName, true, loopNestingLevel)
+                builder => GenerateSerializationInternal(builder, name, type, fullTypeName, true, loopNestingLevel)
                 , true);
             
             builder.AppendElse(builder =>
@@ -391,8 +467,10 @@ public class Generator : ISourceGenerator
                         expressionBuilder.AppendValue(IsNullByte)
                     , 1));
         }
-
-        GenerateTypeSerialization(builder, name, type, fullTypeName, false, loopNestingLevel);
+        else
+        {
+            GenerateSerializationInternal(builder, name, type, fullTypeName, false, loopNestingLevel);
+        }
     }
 
     private static bool IsGenericListType(ITypeSymbol type) =>
@@ -414,7 +492,7 @@ public class Generator : ISourceGenerator
         builder.GetExpressionBuilder().AppendMethodCall($"{StreamParameterName}.Write",
             (expressionBuilder, index) =>
             {
-                expressionBuilder.AppendMethodCall($"{MemoryMarshal}.AsBytes", (expressionBuilder, index) =>
+                expressionBuilder.AppendMethodCall($"{MemoryMarshalType}.AsBytes", (expressionBuilder, index) =>
                 {
                     expressionBuilder.AppendNewObject($"{ReadOnlySpan}<{Int32}>", (expressionBuilder, index) =>
                     {
@@ -481,7 +559,7 @@ public class Generator : ISourceGenerator
         
         expressionBuilder.AppendMethodCall($"{StreamParameterName}.Write", (expressionBuilder, index) =>
         {
-            expressionBuilder.AppendMethodCall($"{MemoryMarshal}.CreateReadOnlySpan", (expressionBuilder, index) =>
+            expressionBuilder.AppendMethodCall($"{MemoryMarshalType}.CreateReadOnlySpan", (expressionBuilder, index) =>
             {
                 if (index == 0)
                 {
@@ -570,7 +648,7 @@ public class Generator : ISourceGenerator
         // write 
         builder.GetExpressionBuilder().AppendMethodCall($"{StreamParameterName}.Write", (expressionBuilder, index) =>
         {
-            expressionBuilder.AppendMethodCall($"{MemoryMarshal}.AsBytes", (expressionBuilder, index) =>
+            expressionBuilder.AppendMethodCall($"{MemoryMarshalType}.AsBytes", (expressionBuilder, index) =>
             {
                 expressionBuilder.AppendNewObject($"{ReadOnlySpan}<{fullTypeName}>", (expressionBuilder, index) =>
                 {
@@ -596,7 +674,7 @@ public class Generator : ISourceGenerator
     {
         builder.GetExpressionBuilder().AppendMethodCall($"{StreamParameterName}.Write", (expressionBuilder, index) =>
         {
-            expressionBuilder.AppendMethodCall($"{MemoryMarshal}.AsBytes", (expressionBuilder, index) =>
+            expressionBuilder.AppendMethodCall($"{MemoryMarshalType}.AsBytes", (expressionBuilder, index) =>
             {
                 expressionBuilder.AppendMethodCall(extensionsType + ".AsSpan", (expressionBuilder, index) =>
                 {
@@ -679,7 +757,7 @@ public class Generator : ISourceGenerator
         
         char loopCharacter = GetLoopCharacter(loopNestingLevel);
         ReadOnlySpan<char> loopCharacterSpan =
-            System.Runtime.InteropServices.MemoryMarshal.CreateReadOnlySpan(ref loopCharacter, 1);
+            MemoryMarshal.CreateReadOnlySpan(ref loopCharacter, 1);
         
         Span<char> loopVariable = stackalloc char[name.Length + lengthMember.Length + 1];
         name.AsSpan().CopyTo(loopVariable);
@@ -709,50 +787,35 @@ public class Generator : ISourceGenerator
 
         return indexedName;
     }
-
-    private static void GenerateForeachLoop(StringBuilder builder, char loopCharacter,
-        ReadOnlySpan<char> loopVariableName, ReadOnlySpan<char> fullTypeName)
-    {
-        builder.Append("foreach (");
-        builder.Append(fullTypeName);
-        builder.Append(' ');
-        builder.Append(loopCharacter);
-        builder.Append(" in ");
-        builder.Append(loopVariableName);
-        builder.Append("){");
-    }
     
     #endregion
 
-    private IEnumerable<(string name, ITypeSymbol type)> GetSerializableMembers(ImmutableArray<ISymbol> members)
+    private static IEnumerable<ISymbol> GetSerializableMembers(ImmutableArray<ISymbol> members)
     {
         for (int i = 0; i < members.Length; i++)
         {
             ISymbol symbol = members[i];
 
-            if (symbol is IFieldSymbol field &&
-                IsSerializableField(field))
+            if ((symbol is IFieldSymbol field &&
+                IsSerializableField(field)) || 
+                (symbol is IPropertySymbol property && 
+                IsSerializableProperty(property)))
             {
-                yield return (field.Name, field.Type);
-            }
-
-            if (symbol is IPropertySymbol property && 
-                IsSerializableProperty(property)){
-                yield return (property.Name, property.Type);
+                yield return symbol;
             }
         }
     }
 
-    private bool IsSerializableField(IFieldSymbol field) =>
+    private static bool IsSerializableField(IFieldSymbol field) =>
         !HasBackingFieldCharacters(field) && field is { IsConst: false, IsStatic: false };
 
-    private bool HasBackingFieldCharacters(IFieldSymbol field) =>
+    private static bool HasBackingFieldCharacters(IFieldSymbol field) =>
         field.Name.AsSpan().Contains("<".AsSpan(), StringComparison.Ordinal);
     
-    private bool IsSerializableProperty(IPropertySymbol property) =>
+    private static bool IsSerializableProperty(IPropertySymbol property) =>
         HasDefaultGetter(property) && !property.IsStatic;
 
-    private bool HasDefaultGetter(IPropertySymbol property)
+    private static bool HasDefaultGetter(IPropertySymbol property)
     {
         if (property.GetMethod is null)
         {
@@ -764,8 +827,8 @@ public class Generator : ISourceGenerator
         return bodies.Item1 is null && bodies.Item2 is null;
     }
     
-    private Func<IMethodSymbol, (BlockSyntax?, ArrowExpressionClauseSyntax?)>? getBodies;
-    private (BlockSyntax?, ArrowExpressionClauseSyntax?) GetPropertyBodies(IMethodSymbol propertyMethod)
+    private static Func<IMethodSymbol, (BlockSyntax?, ArrowExpressionClauseSyntax?)>? getBodies;
+    private static (BlockSyntax?, ArrowExpressionClauseSyntax?) GetPropertyBodies(IMethodSymbol propertyMethod)
     {
         if (getBodies is not null)
         {

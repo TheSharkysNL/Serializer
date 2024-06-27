@@ -131,8 +131,24 @@ public readonly struct ExpressionBuilder
     
     public void AppendValue(ulong value) =>
         builder.Append(value);
-    
 
+    public void AppendString(string value) =>
+        AppendString(value.AsSpan());
+    
+    public void AppendString(ReadOnlySpan<char> value)
+    {
+        builder.Append('\"');
+        builder.Append(value);
+        builder.Append('\"');
+    }
+
+    public void AppendChar(char c)
+    {
+        builder.Append('\'');
+        builder.Append(c);
+        builder.Append('\'');
+    }
+    
     public void AppendDotExpression(string left, string right) =>
         AppendDotExpression(left.AsSpan(), right.AsSpan());
     
@@ -143,8 +159,39 @@ public readonly struct ExpressionBuilder
         builder.Append(right);
     }
 
+    public void AppendDotExpression(Action<ExpressionBuilder> left, Action<ExpressionBuilder> right)
+    {
+        left(this);
+        builder.Append('.');
+        right(this);
+    }
+    
+    public void AppendDotExpression(ReadOnlySpan<char> left, Action<ExpressionBuilder> right)
+    {
+        builder.Append(left);
+        builder.Append('.');
+        right(this);
+    }
+    
+    public void AppendDotExpression(Action<ExpressionBuilder> left, ReadOnlySpan<char> right)
+    {
+        left(this);
+        builder.Append('.');
+        builder.Append(right);
+    }
+
     public void AppendBinaryExpression(string left, string @operator, string right) =>
         AppendBinaryExpression(left.AsSpan(), @operator.AsSpan(), right.AsSpan());
+
+    public void AppendTypeof(string type) =>
+        AppendTypeof(type.AsSpan());
+    
+    public void AppendTypeof(ReadOnlySpan<char> type)
+    {
+        builder.Append("typeof(");
+        builder.Append(type);
+        builder.Append(')');
+    }
     
     public void AppendBinaryExpression(ReadOnlySpan<char> left, ReadOnlySpan<char> @operator, ReadOnlySpan<char> right)
     {

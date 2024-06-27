@@ -550,7 +550,7 @@ public readonly struct CodeBuilder
     
     public void AppendIf<T>(string varName, T? other, string @operator, Action<CodeBuilder> callback,
         string ifType = "if") =>
-        AppendIf(varName.AsSpan(), other, @operator, callback, ifType);
+        AppendIf(varName.AsSpan(), other, @operator.AsSpan(), callback, ifType);
     
     public void AppendIf<T>(ReadOnlySpan<char> varName, T? other, ReadOnlySpan<char> @operator, Action<CodeBuilder> callback,
         string ifType = "if") =>
@@ -608,6 +608,35 @@ public readonly struct CodeBuilder
         builder.Append(" = ");
 
         builder.Append(value);
+
+        builder.Append(';');
+    }
+
+    public void AppendVariableCast(ReadOnlySpan<char> name, ReadOnlySpan<char> type, ReadOnlySpan<char> value)
+    {
+        AppendTypeAndName(name, type);
+
+        builder.Append(" = (");
+        builder.Append(type);
+        builder.Append(')');
+
+        builder.Append(value);
+
+        builder.Append(';');
+    }
+
+    public void AppendVariableCast(string name, string type, Action<ExpressionBuilder> callback)
+        => AppendVariableCast(name.AsSpan(), type.AsSpan(), callback);
+    
+    public void AppendVariableCast(ReadOnlySpan<char> name, ReadOnlySpan<char> type, Action<ExpressionBuilder> callback)
+    {
+        AppendTypeAndName(name, type);
+
+        builder.Append(" = (");
+        builder.Append(type);
+        builder.Append(')');
+
+        callback(GetExpressionBuilder());
 
         builder.Append(';');
     }

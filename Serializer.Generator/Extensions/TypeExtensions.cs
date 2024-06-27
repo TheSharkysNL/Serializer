@@ -14,9 +14,7 @@ public static class TypeExtensions
         CancellationToken token = default)
     {
         SemanticModel model = compilation.GetSemanticModel(type.SyntaxTree);
-
-        ReadOnlySpan<char> shortName = GetShortName(otherType);
-
+        
         INamedTypeSymbol? typeSymbol = model.GetDeclaredSymbol(type, token);
         if (typeSymbol is null)
         {

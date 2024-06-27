@@ -35,9 +35,24 @@ public readonly struct ExpressionBuilder
 
     public void AppendMethodCall(string method, Action<ExpressionBuilder, int> parameters, int parameterCount) =>
         AppendMethodCall(method.AsSpan(), parameters, parameterCount);
+
+    private char GetPreviousNonWhitespaceCharacter()
+    {
+        for (int i = builder.Length - 1; i >= 0; i--)
+        {
+            char c = builder[i];
+            if (!char.IsWhiteSpace(c))
+            {
+                return c;
+            }
+        }
+
+        return '\0';
+    }
     
     public void AppendMethodCall(ReadOnlySpan<char> method, Action<ExpressionBuilder, int> parameters, int parameterCount)
     {
+        char previousChar = GetPreviousNonWhitespaceCharacter();   
         builder.Append(method);
 
         builder.Append('(');
@@ -53,6 +68,11 @@ public readonly struct ExpressionBuilder
         }
 
         builder.Append(')');
+
+        if (previousChar is ';' or '{' or '}')
+        {
+            AppendSemiColon();
+        }
     }
     
     public void AppendMethodCall(string method) =>
@@ -94,11 +114,24 @@ public readonly struct ExpressionBuilder
         AppendMethodCall(@object);
     }
 
-    public void AppendVariable(string name) =>
-        AppendVariable(name.AsSpan());
+    public void AppendValue(string value) =>
+        AppendValue(value.AsSpan());
 
-    public void AppendVariable(ReadOnlySpan<char> name) =>
-        builder.Append(name);
+    public void AppendValue(ReadOnlySpan<char> value) =>
+        builder.Append(value);
+    
+    public void AppendValue(int value) =>
+        builder.Append(value);
+    
+    public void AppendValue(long value) =>
+        builder.Append(value);
+    
+    public void AppendValue(uint value) =>
+        builder.Append(value);
+    
+    public void AppendValue(ulong value) =>
+        builder.Append(value);
+    
 
     public void AppendDotExpression(string left, string right) =>
         AppendDotExpression(left.AsSpan(), right.AsSpan());
@@ -149,6 +182,65 @@ public readonly struct ExpressionBuilder
         builder.Append(' ');
         builder.Append(@operator.Trim());
         builder.Append(' ');
+    }
+
+    public void AppendRef(Action<ExpressionBuilder> callback)
+    {
+        builder.Append("ref ");
+
+        callback(this);
+    }
+    
+    public void AppendIn(Action<ExpressionBuilder> callback)
+    {
+        builder.Append("in ");
+
+        callback(this);
+    }
+
+    public void AppendIncrement(string varName) =>
+        AppendIncrement(varName.AsSpan());
+
+    public void AppendIncrement(ReadOnlySpan<char> varName)
+    {
+        builder.Append(varName);
+        builder.Append("++");
+        AppendSemiColon();
+    }
+    
+    public void AppendDecrement(string varName) =>
+        AppendDecrement(varName.AsSpan());
+
+    public void AppendDecrement(ReadOnlySpan<char> varName)
+    {
+        builder.Append(varName);
+        builder.Append("--");
+        AppendSemiColon();
+    }
+    
+    public void AppendAssignment(string name, Action<ExpressionBuilder> callback) =>
+        AppendAssignment(name.AsSpan(), callback);
+    
+    public void AppendAssignment(ReadOnlySpan<char> name, Action<ExpressionBuilder> callback)
+    {
+        builder.Append(name);
+
+        builder.Append(" = ");
+
+        callback(this);
+
+        AppendSemiColon();
+    }
+
+    public void AppendAssignment(ReadOnlySpan<char> name, ReadOnlySpan<char> value)
+    {
+        builder.Append(name);
+
+        builder.Append(" = ");
+
+        builder.Append(value);
+
+        AppendSemiColon();
     }
 
     public void AppendSemiColon()

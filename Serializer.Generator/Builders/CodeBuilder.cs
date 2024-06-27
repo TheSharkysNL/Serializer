@@ -534,23 +534,11 @@ public readonly struct CodeBuilder
     public void AppendIf(string varName, string otherVar, Action<CodeBuilder> callback, bool notEqual = false,
         string ifType = "if") =>
         AppendIf(varName.AsSpan(), otherVar.AsSpan(), callback, notEqual, ifType);
-    
-    public void AppendIf(ReadOnlySpan<char> varName, ReadOnlySpan<char> otherVar, Action<CodeBuilder> callback, bool notEqual = false,
-        string ifType = "if")
-    {
-        builder.Append(ifType);
 
-        builder.Append(" (");
-        builder.Append(varName);
-
-        builder.Append(notEqual ? " != " : " == ");
-
-        builder.Append(otherVar);
-
-        builder.Append(')');
-
-        AppendScope(callback);
-    }
+    public void AppendIf(ReadOnlySpan<char> varName, ReadOnlySpan<char> otherVar, Action<CodeBuilder> callback,
+        bool notEqual = false,
+        string ifType = "if") =>
+        AppendIf(varName, otherVar, notEqual ? "!=" : "==", callback, ifType);
 
     public void AppendIf<T>(string varName, T? other, Action<CodeBuilder> callback, bool notEqual = false,
         string ifType = "if") =>
@@ -559,6 +547,45 @@ public readonly struct CodeBuilder
     public void AppendIf<T>(ReadOnlySpan<char> varName, T? other, Action<CodeBuilder> callback, bool notEqual = false,
         string ifType = "if") =>
         AppendIf(varName, (other?.ToString() ?? "null").AsSpan(), callback, notEqual, ifType);
+    
+    public void AppendIf<T>(string varName, T? other, string @operator, Action<CodeBuilder> callback,
+        string ifType = "if") =>
+        AppendIf(varName.AsSpan(), other, @operator, callback, ifType);
+    
+    public void AppendIf<T>(ReadOnlySpan<char> varName, T? other, ReadOnlySpan<char> @operator, Action<CodeBuilder> callback,
+        string ifType = "if") =>
+        AppendIf(varName, (other?.ToString() ?? "null").AsSpan(), @operator, callback, ifType);
+
+    public void AppendIf(string varName, string other, string @operator,
+        Action<CodeBuilder> callback, string ifType = "if")
+        => AppendIf(varName.AsSpan(), other.AsSpan(), @operator.AsSpan(), callback, ifType);
+    
+    public void AppendIf(ReadOnlySpan<char> varName, ReadOnlySpan<char> other, ReadOnlySpan<char> @operator,
+        Action<CodeBuilder> callback, string ifType = "if")
+    {
+        builder.Append(ifType);
+
+        builder.Append(" (");
+
+        builder.Append(varName);
+
+        builder.Append(' ');
+        builder.Append(@operator.Trim());
+        builder.Append(' ');
+
+        builder.Append(other);
+        
+        builder.Append(')');
+        
+        AppendScope(callback);
+    }
+
+    public void AppendElse(Action<CodeBuilder> callback)
+    {
+        builder.Append("else");
+        
+        AppendScope(callback);
+    }
 
     public void AppendVariable(string name, string type, Action<ExpressionBuilder> callback) =>
         AppendVariable(name.AsSpan(), type.AsSpan(), callback);
@@ -572,6 +599,53 @@ public readonly struct CodeBuilder
         callback(GetExpressionBuilder());
 
         builder.Append(';');
+    }
+
+    public void AppendVariable(ReadOnlySpan<char> name, ReadOnlySpan<char> type, ReadOnlySpan<char> value)
+    {
+        AppendTypeAndName(name, type);
+
+        builder.Append(" = ");
+
+        builder.Append(value);
+
+        builder.Append(';');
+    }
+
+    public void AppendFor(string variableName, string loopVariableName, Action<CodeBuilder> callback) =>
+        AppendFor(variableName.AsSpan(), loopVariableName.AsSpan(), callback);
+    
+    public void AppendFor(ReadOnlySpan<char> variableName, ReadOnlySpan<char> loopVariableName, Action<CodeBuilder> callback)
+    {
+        builder.Append("for (int ");
+        builder.Append(variableName);
+        builder.Append(" = 0; ");
+        builder.Append(variableName);
+        builder.Append(" < ");
+        builder.Append(loopVariableName);
+        builder.Append("; ");
+        builder.Append(variableName);
+        builder.Append("++)");
+
+        AppendScope(callback);
+    }
+
+    public void AppendForeach(string variableName, string loopVariableName, string type,
+        Action<CodeBuilder> callback) =>
+        AppendForeach(variableName.AsSpan(), loopVariableName.AsSpan(), type.AsSpan(), callback);
+
+    public void AppendForeach(ReadOnlySpan<char> variableName, ReadOnlySpan<char> loopVariableName, ReadOnlySpan<char> type,
+        Action<CodeBuilder> callback)
+    {
+        builder.Append("foreach (");
+        builder.Append(type);
+        builder.Append(' ');
+        builder.Append(loopVariableName);
+        builder.Append(" in ");
+        builder.Append(variableName);
+        builder.Append(')');
+        
+        AppendScope(callback);
     }
 
     public ExpressionBuilder GetExpressionBuilder() =>

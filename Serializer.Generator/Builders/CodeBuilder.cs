@@ -433,8 +433,11 @@ public readonly struct CodeBuilder
 
     private void AppendTypeAndName(ReadOnlySpan<char> name, ReadOnlySpan<char> type)
     {
-        builder.Append(type);
-        builder.Append(' ');
+        if (!type.IsEmpty)
+        {
+            builder.Append(type);
+            builder.Append(' ');
+        }
         builder.Append(name);
     }
 

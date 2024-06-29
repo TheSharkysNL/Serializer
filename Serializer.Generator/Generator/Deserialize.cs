@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using Microsoft.CodeAnalysis;
 using Serializer.Builders;
 using Serializer.Extensions;
@@ -55,7 +56,7 @@ public static class Deserialize
         {
             builder.AppendScope(builder =>
             {
-                builder.AppendVariable("sizeOrNullByte", Types.Int32, expressionBuilder =>
+                builder.AppendVariable("sizeOrNullByte",  loopNestingLevel == 0 ? Types.Int32 : "", expressionBuilder =>
                 {
                     expressionBuilder.AppendMethodCall($"{StreamParameterName}.ReadByte");
                 });
@@ -149,7 +150,13 @@ public static class Deserialize
             }
             else
             {
-                throw new NotImplementedException("Non unmanaged types for collections are not implemented");
+                char loopCharacter = (char)('i' + loopNestingLevel);
+                ReadOnlySpan<char> loopCharacterSpan = MemoryMarshal.CreateReadOnlySpan(ref loopCharacter, 1);
+
+                builder.AppendFor(loopCharacterSpan, tempArrayName + ".Length",
+                    builder => GenerateDeserialization(builder, $"{tempArrayName}[{loopCharacter}]", elementType,
+                        elementType.ToDisplayString(Formats.GlobalFullNamespaceFormat).AsMemory(),
+                        loopNestingLevel + 1));
             }
         });
     }

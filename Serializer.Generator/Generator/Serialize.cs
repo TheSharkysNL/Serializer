@@ -202,6 +202,8 @@ public static class Serialize
 
         builder.AppendScope(builder =>
         {
+            builder.GetExpressionBuilder().AppendMethodCall($"{StreamParameterName}.WriteByte",
+                (expressionBuilder, _) => expressionBuilder.AppendValue("4"), 1);
             builder.AppendVariable("count", Types.Int32, "0");
             builder.AppendVariable("startPosition", Types.Int64, $"{StreamParameterName}.Position");
 

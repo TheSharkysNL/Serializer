@@ -10,37 +10,14 @@ namespace Serializer.Generator;
 
 public static class Serialize
 {
-    #region type constants 
+    private const string StreamParameterName = Generator.StreamParameterName;
     
-    private const string String = "global::System.String";
-    private const string Int64 = "global::System.Int64";
-    private const string MemoryMarshalType = "global::System.Runtime.InteropServices.MemoryMarshal";
-    private const string ReadOnlySpan = "global::System.ReadOnlySpan";
-    private const string MemoryExtensions = "global::System.MemoryExtensions";
-    private const string Unsafe = "global::System.Runtime.CompilerServices.Unsafe";
-    private const string CollectionsMarshal = "global::System.Runtime.InteropServices.CollectionsMarshal";
-    private const string ListGeneric = "global::System.Collections.Generic.List";
-    private const string IReadonlyListGeneric = "global::System.Collections.Generic.IReadOnlyList";
-    private const string IListGeneric = "global::System.Collections.Generic.IList";
-    private const string IEnumerableGeneric = "global::System.Collections.Generic.IEnumerable";
-    private const string ICollectionGeneric = "global::System.Collections.Generic.ICollection";
-    private const string IReadOnlyCollectionGeneric = "global::System.Collections.Generic.IReadOnlyCollection";
-    private const string Nullable = "global::System.Nullable";
-    private const string Byte = "global::System.Byte";
-    private const string Int32 = "global::System.Int32";
-    private const string Object = "global::System.Object";
-    private const string BindingFlagsType = "global::System.Reflection.BindingFlags";
-    
-    #endregion
-    
-    private const string StreamParameterName = "stream";
-    
-    private const string IsNullByte = "5";
+    public const string IsNullByte = "5";
     private const string ByteMax = "255";
     private const string UInt16Max = "65535";
     private const string UInt24Max = "16777215";
 
-    private const string BindingFlagsInstancePrivate = $"{BindingFlagsType}.Instance | {BindingFlagsType}.NonPublic";
+    private const string BindingFlagsInstancePrivate = $"{Types.BindingFlags}.Instance | {Types.BindingFlags}.NonPublic";
     
     public static void GenerateForSymbol(CodeBuilder builder, ITypeSymbol symbol, ReadOnlyMemory<char> namePrefix = default)
     {
@@ -50,7 +27,7 @@ public static class Serialize
         foreach (ISymbol member in serializableMembers)
         {
             string memberName = member.Name;
-            ITypeSymbol memberType = GetMemberType(member);
+            ITypeSymbol memberType = member.GetMemberType();
             
             ReadOnlyMemory<char> prefix = namePrefix.IsEmpty ? "this".AsMemory() : namePrefix;
             if (!namePrefix.IsEmpty && !member.DeclaredAccessibility.HasFlag(Accessibility.Public))
@@ -61,16 +38,6 @@ public static class Serialize
             }
             GenerateMemberSerialization(builder, memberName, memberType, prefix);
         }
-    }
-
-    private static ITypeSymbol GetMemberType(ISymbol member)
-    {
-        if (member is IFieldSymbol field)
-        {
-            return field.Type;
-        }
-        Debug.Assert(member is IPropertySymbol);
-        return ((IPropertySymbol)member).Type;
     }
 
     private static void GenerateReflectionGetObject(CodeBuilder builder, string variableName, ITypeSymbol variableType,
@@ -145,7 +112,7 @@ public static class Serialize
             }
             GenerateReadUnmanagedType(builder, name, fullTypeName);
         } 
-        else if (fullTypeName.Span.SequenceEqual(String.AsSpan())) // is string
+        else if (fullTypeName.Span.SequenceEqual(Types.String.AsSpan())) // is string
         {
             // currently no encoding for fast deserialization, TODO: maybe add parameter to indicate that the object should be serialized with the least amount of bytes possible
             GenerateUnmanagedArray(builder, name); 
@@ -162,9 +129,9 @@ public static class Serialize
         {
             GenerateEnumerable(builder, name, type, loopNestingLevel);
         } 
-        else if (type.FullNamesMatch(Object)) // is Object
+        else if (type.IsAbstract || type.FullNamesMatch(Types.Object) || type.TypeKind == TypeKind.Dynamic) // is Object, abstract or dynamic
         {
-            throw new NotSupportedException($"object types are currently not supported"); // TODO: get runtime properties and fields
+            throw new NotSupportedException($"object, abstract and dynamic types are currently not supported"); // TODO: get runtime properties and fields
         }
         else
         {
@@ -174,7 +141,7 @@ public static class Serialize
 
     private static void GenerateSerialization(CodeBuilder builder, char[] name, ITypeSymbol type, ReadOnlyMemory<char> fullTypeName, int loopNestingLevel = 0)
     {
-        bool isNullableType = !type.IsValueType || fullTypeName.Span.SequenceEqual(Nullable);
+        bool isNullableType = type.IsNullableType(fullTypeName.Span);
         if (isNullableType)
         {
             builder.AppendIf<object?>(name, null,
@@ -195,26 +162,26 @@ public static class Serialize
 
     private static bool IsGenericListType(ITypeSymbol type) =>
         type is INamedTypeSymbol { IsGenericType: true, TypeArguments.Length: 1 } &&
-        (type.IsOrInheritsFrom(IReadonlyListGeneric) != InheritingTypes.None ||
-         type.IsOrInheritsFrom(IListGeneric) != InheritingTypes.None);
+        (type.IsOrInheritsFrom(Types.IReadonlyListGeneric) != InheritingTypes.None ||
+         type.IsOrInheritsFrom(Types.IListGeneric) != InheritingTypes.None);
 
     private static bool IsGenericIEnumerableType(ITypeSymbol type) =>
         type is INamedTypeSymbol { IsGenericType: true, TypeArguments.Length: 1 } &&
-        type.IsOrInheritsFrom(IEnumerableGeneric) != InheritingTypes.None;
+        type.IsOrInheritsFrom(Types.IEnumerableGeneric) != InheritingTypes.None;
 
     private static bool IsGenericICollectionType(ITypeSymbol type) =>
         type is INamedTypeSymbol { IsGenericType: true, TypeArguments.Length: 1 } &&
-        (type.IsOrInheritsFrom(ICollectionGeneric) != InheritingTypes.None ||
-         type.IsOrInheritsFrom(IReadOnlyCollectionGeneric) != InheritingTypes.None);
+        (type.IsOrInheritsFrom(Types.ICollectionGeneric) != InheritingTypes.None ||
+         type.IsOrInheritsFrom(Types.IReadOnlyCollectionGeneric) != InheritingTypes.None);
 
     private static void GenerateInt32Write(CodeBuilder builder, ReadOnlyMemory<char> name)
     {
         builder.GetExpressionBuilder().AppendMethodCall($"{StreamParameterName}.Write",
             (expressionBuilder, index) =>
             {
-                expressionBuilder.AppendMethodCall($"{MemoryMarshalType}.AsBytes", (expressionBuilder, index) =>
+                expressionBuilder.AppendMethodCall($"{Types.MemoryMarshal}.AsBytes", (expressionBuilder, index) =>
                 {
-                    expressionBuilder.AppendNewObject($"{ReadOnlySpan}<{Int32}>", (expressionBuilder, index) =>
+                    expressionBuilder.AppendNewObject($"{Types.ReadOnlySpan}<{Types.Int32}>", (expressionBuilder, index) =>
                     {
                         expressionBuilder.AppendRef(expressionBuilder => expressionBuilder.AppendValue(name.Span));
                     }, 1);
@@ -235,8 +202,8 @@ public static class Serialize
 
         builder.AppendScope(builder =>
         {
-            builder.AppendVariable("count", Int32, "0");
-            builder.AppendVariable("startPosition", Int64, $"{StreamParameterName}.Position");
+            builder.AppendVariable("count", Types.Int32, "0");
+            builder.AppendVariable("startPosition", Types.Int64, $"{StreamParameterName}.Position");
 
             GenerateInt32Write(builder, "count".AsMemory()); // write temp 32 bit int to increment position
             
@@ -246,7 +213,7 @@ public static class Serialize
                 builder.GetExpressionBuilder().AppendIncrement("count");
             });
             
-            builder.AppendVariable("currentPosition", Int64, $"{StreamParameterName}.Position");
+            builder.AppendVariable("currentPosition", Types.Int64, $"{StreamParameterName}.Position");
             builder.GetExpressionBuilder().AppendAssignment($"{StreamParameterName}.Position", "startPosition");
             GenerateInt32Write(builder, "count".AsMemory());
             builder.GetExpressionBuilder().AppendAssignment($"{StreamParameterName}.Position", "currentPosition");
@@ -279,13 +246,13 @@ public static class Serialize
         
         expressionBuilder.AppendMethodCall($"{StreamParameterName}.Write", (expressionBuilder, index) =>
         {
-            expressionBuilder.AppendMethodCall($"{MemoryMarshalType}.CreateReadOnlySpan", (expressionBuilder, index) =>
+            expressionBuilder.AppendMethodCall($"{Types.MemoryMarshal}.CreateReadOnlySpan", (expressionBuilder, index) =>
             {
                 if (index == 0)
                 {
                     expressionBuilder.AppendRef((expressionBuilder) =>
                     {
-                        expressionBuilder.AppendMethodCall($"{Unsafe}.As<{Int32}, {Byte}>", (expressionBuilder, index) =>
+                        expressionBuilder.AppendMethodCall($"{Types.Unsafe}.As<{Types.Int32}, {Types.Byte}>", (expressionBuilder, index) =>
                         {
                             expressionBuilder.AppendRef(expressionBuilder =>
                             {
@@ -321,7 +288,7 @@ public static class Serialize
     {
         builder.AppendScope(builder =>
         {
-            builder.AppendVariable(lengthName, Int32, builder =>
+            builder.AppendVariable(lengthName, Types.Int32, builder =>
             {
                 builder.AppendDotExpression(name, lengthName);
             });
@@ -340,9 +307,9 @@ public static class Serialize
             
         string newFullTypeName = generic.ToDisplayString(Formats.GlobalFullNamespaceFormat);
 
-        if (fullTypeName.Span.SequenceEqual(ListGeneric) && generic.IsUnmanagedType)
+        if (fullTypeName.Span.SequenceEqual(Types.ListGeneric) && generic.IsUnmanagedType)
         {
-            GenerateSpanConversionWrite(builder, name, CollectionsMarshal);
+            GenerateSpanConversionWrite(builder, name, Types.CollectionsMarshal);
                 
             // builder.Append($"{OffsetParameterName} += ");
             // GenerateCollectionByteSize(builder, name, newFullTypeName, "Count");
@@ -368,13 +335,13 @@ public static class Serialize
         // write 
         builder.GetExpressionBuilder().AppendMethodCall($"{StreamParameterName}.Write", (expressionBuilder, index) =>
         {
-            expressionBuilder.AppendMethodCall($"{MemoryMarshalType}.AsBytes", (expressionBuilder, index) =>
+            expressionBuilder.AppendMethodCall($"{Types.MemoryMarshal}.AsBytes", (expressionBuilder, index) =>
             {
-                expressionBuilder.AppendNewObject($"{ReadOnlySpan}<{fullTypeName}>", (expressionBuilder, index) =>
+                expressionBuilder.AppendNewObject(Types.ReadOnlySpan, fullTypeName.Span, (expressionBuilder, index) =>
                 {
                     expressionBuilder.AppendRef(expressionBuilder =>
                     {
-                        expressionBuilder.AppendMethodCall($"{Unsafe}.AsRef<{fullTypeName}>",
+                        expressionBuilder.AppendMethodCall($"{Types.Unsafe}.AsRef", fullTypeName.Span,
                             (expressionBuilder, index) =>
                             {
                                 expressionBuilder.AppendIn(builder => builder.AppendValue(name));
@@ -394,7 +361,7 @@ public static class Serialize
     {
         builder.GetExpressionBuilder().AppendMethodCall($"{StreamParameterName}.Write", (expressionBuilder, index) =>
         {
-            expressionBuilder.AppendMethodCall($"{MemoryMarshalType}.AsBytes", (expressionBuilder, index) =>
+            expressionBuilder.AppendMethodCall($"{Types.MemoryMarshal}.AsBytes", (expressionBuilder, index) =>
             {
                 expressionBuilder.AppendMethodCall(extensionsType + ".AsSpan", (expressionBuilder, index) =>
                 {
@@ -405,7 +372,7 @@ public static class Serialize
     }
 
     private static void GenerateUnmanagedArray(CodeBuilder builder, char[] name,
-        string extensionsType = MemoryExtensions)
+        string extensionsType = Types.MemoryExtensions)
     {
         GenerateCountStorage(builder, name, "Length");
         
@@ -429,7 +396,7 @@ public static class Serialize
 
     private static void GenerateSizeOf(StringBuilder builder, ReadOnlySpan<char> fullTypeName)
     {
-        builder.Append($"{Unsafe}.SizeOf<");
+        builder.Append($"{Types.Unsafe}.SizeOf<");
         builder.Append(fullTypeName);
         builder.Append(">();");
     }

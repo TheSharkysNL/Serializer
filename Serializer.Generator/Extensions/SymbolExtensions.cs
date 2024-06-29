@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Reflection;
 using System.Reflection.Emit;
 using Microsoft.CodeAnalysis;
@@ -71,5 +72,15 @@ public static class SymbolExtensions
             typeof(Func<IMethodSymbol, (BlockSyntax?, ArrowExpressionClauseSyntax?)>));
 
         return getBodies(propertyMethod);
+    }
+    
+    public static ITypeSymbol GetMemberType(this ISymbol member)
+    {
+        if (member is IFieldSymbol field)
+        {
+            return field.Type;
+        }
+        Debug.Assert(member is IPropertySymbol);
+        return ((IPropertySymbol)member).Type;
     }
 }

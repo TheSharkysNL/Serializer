@@ -111,4 +111,10 @@ public static class TypeExtensions
     public static bool FullNamesMatch(this ISymbol symbol, string otherType) => 
         symbol.ToDisplayString(Formats.GlobalFullNamespaceFormat).AsSpan()
             .Contains(otherType.AsSpan(), StringComparison.Ordinal);
+
+    public static bool IsNullableType(this ITypeSymbol type) =>
+        IsNullableType(type, type.ToDisplayString(Formats.GlobalFullNamespaceFormat));
+    
+    public static bool IsNullableType(this ITypeSymbol type, ReadOnlySpan<char> fullTypeName) =>
+        !type.IsValueType || fullTypeName.SequenceEqual(Types.Nullable);
 }

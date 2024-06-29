@@ -1,10 +1,5 @@
-using System.Buffers;
 using System.Collections.Immutable;
 using System.Diagnostics;
-using System.Reflection;
-using System.Reflection.Emit;
-using System.Runtime.InteropServices;
-using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -17,14 +12,6 @@ namespace Serializer.Generator;
 [Generator]
 public class Generator : ISourceGenerator
 {
-    private const string FileReader = "global::Serializer.IO.FileReader";
-    private const string FileWriter = "global::Serializer.IO.FileWriter";
-    
-    private const string String = "global::System.String";
-    private const string Int64 = "global::System.Int64";
-    private const string SafeFileHandle = "global::Microsoft.Win32.SafeHandles.SafeFileHandle";
-    private const string Stream = "global::System.IO.Stream";
-    
     private const string SerializableName = "ISerializable";
     private const string SerializableFullNamespace = $"global::Serializer.{SerializableName}";
 
@@ -32,19 +19,19 @@ public class Generator : ISourceGenerator
     private const string SerializeFunctionName = "Serialize";
 
     private static readonly string[][] serializableFunctions = [
-        [DeserializeFunctionName, "static", String], 
-        [DeserializeFunctionName, "static", String, Int64],
-        [DeserializeFunctionName, "static", SafeFileHandle],
-        [DeserializeFunctionName, "static", SafeFileHandle, Int64],
-        [DeserializeFunctionName, "static", Stream],
-        [SerializeFunctionName, "", String], 
-        [SerializeFunctionName, "", String, Int64],
-        [SerializeFunctionName, "", SafeFileHandle],
-        [SerializeFunctionName, "", SafeFileHandle, Int64],
-        [SerializeFunctionName, "", Stream],
+        [DeserializeFunctionName, "static", Types.String], 
+        [DeserializeFunctionName, "static", Types.String, Types.Int64],
+        [DeserializeFunctionName, "static", Types.SafeFileHandle],
+        [DeserializeFunctionName, "static", Types.SafeFileHandle, Types.Int64],
+        [DeserializeFunctionName, "static", Types.Stream],
+        [SerializeFunctionName, "", Types.String], 
+        [SerializeFunctionName, "", Types.String, Types.Int64],
+        [SerializeFunctionName, "", Types.SafeFileHandle],
+        [SerializeFunctionName, "", Types.SafeFileHandle, Types.Int64],
+        [SerializeFunctionName, "", Types.Stream],
     ];
 
-    private const string StreamParameterName = "stream";
+    public const string StreamParameterName = "stream";
     
     private const int MainFunctionArgumentCount = 1;
     private const string MainFunctionPostFix = "Internal";
@@ -59,6 +46,7 @@ public class Generator : ISourceGenerator
         IEnumerable<TypeDeclarationSyntax> inheritingTypes = receiver.Candidates;
         
         CodeBuilder builder = new(4096);
+        
         foreach (TypeDeclarationSyntax inheritingType in inheritingTypes)
         {
             InheritingTypes type = inheritingType.InheritsFrom(SerializableFullNamespace, compilation, token);
@@ -78,14 +66,11 @@ public class Generator : ISourceGenerator
             string fullTypeName = symbol.ToDisplayString(Formats.GlobalFullNamespaceFormat);
             GenerateClassAndMethods(builder, fullTypeName, inheritingType, symbol, builder =>
             {
-                GenerateMainMethod(builder, DeserializeFunctionName + MainFunctionPostFix, fullTypeName, codeBuilder =>
-                {
-                    Deserialize.GenerateForSymbol(codeBuilder, symbol);
-                });
+                Deserialize.GenerateForSymbol(builder, DeserializeFunctionName + MainFunctionPostFix, fullTypeName, symbol);
             
                 GenerateMainMethod(builder, SerializeFunctionName + MainFunctionPostFix, fullTypeName, codeBuilder =>
                 {
-                    codeBuilder.AppendVariable("initialPosition", Int64,
+                    codeBuilder.AppendVariable("initialPosition", Types.Int64,
                         expressionBuilder => expressionBuilder.AppendDotExpression(StreamParameterName, "Position"));
 
                     Serialize.GenerateForSymbol(codeBuilder, symbol);
@@ -102,6 +87,7 @@ public class Generator : ISourceGenerator
         }
         
         string code = new CodeFormatter(builder.ToString()).ToString();
+        
         context.AddSource("test.g.cs", code);
     }
 
@@ -132,24 +118,22 @@ public class Generator : ISourceGenerator
         });
     }
     
-    private void GenerateMainMethod(CodeBuilder builder, string methodName, string fullTypeName, Action<CodeBuilder> callback)
+    public static void GenerateMainMethod(CodeBuilder builder, string methodName, string fullTypeName, Action<CodeBuilder> callback)
     {
-        Generic[] generics = [new("T", [Stream])];
-
         string returnType = GetReturnType(methodName, fullTypeName);
 
         string[] modifiers = IsDeserializeFunction(methodName) 
             ? ["private", "static"] 
             : ["private"];
 
-        builder.AppendGenericMethod(methodName, returnType, [("T", StreamParameterName)], modifiers, generics,
+        builder.AppendMethod(methodName, returnType, [(Types.Stream, StreamParameterName)], modifiers,
             callback);
     }
 
-    private string GetReturnType(ReadOnlySpan<char> methodName, string fullTypeName) =>
+    private static string GetReturnType(ReadOnlySpan<char> methodName, string fullTypeName) =>
         IsDeserializeFunction(methodName)
             ? fullTypeName
-            : Int64;
+            : Types.Int64;
     
     private void GenerateMethodBody(CodeBuilder builder, string methodName, ReadOnlyMemory<string> parameterTypes, ImmutableArray<IParameterSymbol>? currentParameters)
     {
@@ -159,13 +143,13 @@ public class Generator : ISourceGenerator
         {
             expressionBuilder.AppendMethodCall(methodName, (expressionBuilder, index) =>
             {
-                if (parameterTypes.Span[0] == Stream)
+                if (parameterTypes.Span[0] == Types.Stream)
                 {
                     expressionBuilder.AppendValue(GetParameterName(0, currentParameters));
                 }
                 else
                 {
-                    string objectName = IsDeserializeFunction(methodName) ? FileReader : FileWriter;
+                    string objectName = IsDeserializeFunction(methodName) ? Types.FileReader : Types.FileWriter;
                     expressionBuilder.AppendNewObject(objectName,
                         (expressionBuilder, index) =>
                             expressionBuilder.AppendValue(GetParameterName(index, currentParameters)),
@@ -175,7 +159,7 @@ public class Generator : ISourceGenerator
         });
     }
 
-    private bool IsDeserializeFunction(ReadOnlySpan<char> name) =>
+    private static bool IsDeserializeFunction(ReadOnlySpan<char> name) =>
         name.StartsWith(DeserializeFunctionName.AsSpan());
 
     private IEnumerable<(string type, string name)> GetMethodParameters(ReadOnlyMemory<string> parameterTypes,

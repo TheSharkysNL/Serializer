@@ -219,7 +219,7 @@ public class Generator : ISourceGenerator
                 parameters = function.AsMemory()[2..];
             }
 
-            IMethodSymbol? method = FindMethod(members, funcName, parameters.Span);
+            IMethodSymbol? method = members.FindMethod(funcName, parameters.Span);
             if (method is null)
             {
                 yield return (funcName, modifiers, parameters, null);
@@ -229,50 +229,6 @@ public class Generator : ISourceGenerator
                 yield return (funcName, modifiers + " partial", parameters, method.Parameters);
             }
         }
-    }
-
-    private IMethodSymbol? FindMethod(ImmutableArray<ISymbol> symbols, string name, ReadOnlySpan<string> parameterTypes)
-    {
-        for (int i = 0; i < symbols.Length; i++)
-        {
-            ISymbol symbol = symbols[i];
-            if (symbol.Kind != SymbolKind.Method)
-            {
-                continue;
-            }
-
-            IMethodSymbol method = (IMethodSymbol)symbol;
-            if (method.Name == name &&
-                HasParameterTypes(method, parameterTypes))
-            {
-                return method;
-            }
-        }
-
-        return null;
-    }
-
-    private bool HasParameterTypes(IMethodSymbol method, ReadOnlySpan<string> types)
-    {
-        ImmutableArray<IParameterSymbol> parameters = method.Parameters;
-        if (parameters.Length != types.Length)
-        {
-            return false;
-        }
-        for (int i = 0; i < parameters.Length; i++)
-        {
-            IParameterSymbol parameter = parameters[i];
-            string type = types[i];
-            ReadOnlySpan<char> shortName = type.GetShortName();
-
-            if (!parameter.Type.Name.AsSpan().SequenceEqual(shortName) ||
-                !parameter.Type.FullNamesMatch(type))
-            {
-                return false;
-            }
-        }
-
-        return true;
     }
     #endregion
 }

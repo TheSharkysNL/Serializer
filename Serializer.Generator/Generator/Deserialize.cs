@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Microsoft.CodeAnalysis;
@@ -12,22 +13,24 @@ public static class Deserialize
     
     public static void GenerateForSymbol(CodeBuilder builder, string methodName, string returnType, ITypeSymbol symbol)
     {
-        ISymbol[] members = symbol.GetMembers().GetSerializableMembers().ToArray();   
-        
-        IEnumerable<(string type, string name)> parameters = members.Select(symbol => (symbol.GetMemberType().ToDisplayString(Formats.GlobalFullGenericNamespaceFormat), symbol.Name));
-        builder.AppendConstructor(symbol.Name, parameters, "private", builder =>
+        ImmutableArray<ISymbol> members = symbol.GetMembers();
+        ISymbol[] serializableMembers = members.GetSerializableMembers().ToArray();
+
+        string[] types = new string[serializableMembers.Length];
+        for (int i = 0; i < types.Length; i++)
         {
-            foreach (ISymbol member in members)
-            {
-                builder.GetExpressionBuilder()
-                    .AppendAssignment(expressionBuilder => expressionBuilder.AppendDotExpression("this", member.Name),
-                        member.Name);
-            }
-        });
+            types[i] = serializableMembers[i].GetMemberType().ToDisplayString(Formats.GlobalFullGenericNamespaceFormat);
+        }
+
+        bool alreadyHasConstructor = members.FindConstructor(types) is not null;
+        if (!alreadyHasConstructor)
+        {
+            GenerateConstructor(builder, symbol, serializableMembers, members, types);
+        }
         
         Generator.GenerateMainMethod(builder, methodName, returnType, builder =>
         {
-            foreach (ISymbol symbol in members)
+            foreach (ISymbol symbol in serializableMembers)
             {
                 ITypeSymbol type = symbol.GetMemberType();
                 string fullGenericTypeName = type.ToDisplayString(Formats.GlobalFullGenericNamespaceFormat);
@@ -44,8 +47,22 @@ public static class Deserialize
             builder.AppendReturn(expressionBuilder => 
                 expressionBuilder.AppendNewObject(returnType, (parameterBuilder, index) =>
                 {
-                    parameterBuilder.AppendValue(members[index].Name);
-                }, members.Length));
+                    parameterBuilder.AppendValue(serializableMembers[index].Name);
+                }, serializableMembers.Length));
+        });
+    }
+
+    private static void GenerateConstructor(CodeBuilder builder, ITypeSymbol symbol, ISymbol[] serializableMembers, ImmutableArray<ISymbol> members, string[] types)
+    {
+        IEnumerable<(string type, string name)> parameters = serializableMembers.Select((symbol, index) => (types[index], symbol.Name));
+        builder.AppendConstructor(symbol.Name, parameters, "private", builder =>
+        {
+            foreach (ISymbol member in serializableMembers)
+            {
+                builder.GetExpressionBuilder()
+                    .AppendAssignment(expressionBuilder => expressionBuilder.AppendDotExpression("this", member.Name),
+                        member.Name);
+            }
         });
     }
 

@@ -1,4 +1,3 @@
-using System.Reflection.Emit;
 using System.Text;
 
 namespace Serializer.Builders;
@@ -640,6 +639,16 @@ public readonly struct CodeBuilder
 
         builder.Append(';');
     }
+    
+    public void AppendVariable(string name, string type) =>
+        AppendVariable(name.AsSpan(), type.AsSpan());
+
+    public void AppendVariable(ReadOnlySpan<char> name, ReadOnlySpan<char> type)
+    {
+        AppendTypeAndName(name, type);
+
+        builder.Append(';');
+    }
 
     public void AppendFor(string variableName, string loopVariableName, Action<CodeBuilder> callback) =>
         AppendFor(variableName.AsSpan(), loopVariableName.AsSpan(), callback);
@@ -672,6 +681,36 @@ public readonly struct CodeBuilder
         builder.Append(loopVariableName);
         builder.Append(" in ");
         builder.Append(variableName);
+        builder.Append(')');
+        
+        AppendScope(callback);
+    }
+
+    public void AppendConstructor(ReadOnlySpan<char> typeName, IReadOnlyList<(string type, string name)> parameters,
+        string modifiers, Action<CodeBuilder> callback)
+    {
+        builder.Append(modifiers.AsSpan().Trim());
+
+        builder.Append(' ');
+        builder.Append(typeName);
+
+        builder.Append('(');
+        AppendParameters(parameters);
+        builder.Append(')');
+        
+        AppendScope(callback);
+    }
+    
+    public void AppendConstructor(ReadOnlySpan<char> typeName, IEnumerable<(string type, string name)> parameters,
+        string modifiers, Action<CodeBuilder> callback)
+    {
+        builder.Append(modifiers.AsSpan().Trim());
+
+        builder.Append(' ');
+        builder.Append(typeName);
+
+        builder.Append('(');
+        AppendParameters(parameters);
         builder.Append(')');
         
         AppendScope(callback);

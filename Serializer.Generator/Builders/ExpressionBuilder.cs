@@ -49,11 +49,22 @@ public readonly struct ExpressionBuilder
 
         return '\0';
     }
+
+    public void AppendMethodCall(ReadOnlySpan<char> method, Action<ExpressionBuilder, int> parameters,
+        int parameterCount) =>
+        AppendMethodCall(method, "".AsSpan(), parameters, parameterCount);
     
-    public void AppendMethodCall(ReadOnlySpan<char> method, Action<ExpressionBuilder, int> parameters, int parameterCount)
+    public void AppendMethodCall(ReadOnlySpan<char> method, ReadOnlySpan<char> generic, Action<ExpressionBuilder, int> parameters, int parameterCount)
     {
         char previousChar = GetPreviousNonWhitespaceCharacter();   
         builder.Append(method);
+
+        if (!generic.IsEmpty)
+        {
+            builder.Append('<');
+            builder.Append(generic);
+            builder.Append('>');
+        }
 
         builder.Append('(');
 
@@ -80,8 +91,15 @@ public readonly struct ExpressionBuilder
     
     public void AppendMethodCall(ReadOnlySpan<char> method)
     {
+        char previousChar = GetPreviousNonWhitespaceCharacter();   
+        
         builder.Append(method);
         builder.Append("()");
+        
+        if (previousChar is ';' or '{' or '}')
+        {
+            AppendSemiColon();
+        }
     }
 
     public void AppendNewObject(string @object, Predicate<ExpressionBuilder> parameters) =>
@@ -112,6 +130,15 @@ public readonly struct ExpressionBuilder
         builder.Append("new ");
         
         AppendMethodCall(@object);
+    }
+
+    public void AppendNewObject(ReadOnlySpan<char> @object, ReadOnlySpan<char> generic,
+        Action<ExpressionBuilder, int> parameters, int count)
+    {
+        builder.Append("new ");
+        
+        AppendMethodCall(@object, generic, parameters, count);
+        
     }
 
     public void AppendValue(string value) =>
@@ -265,16 +292,38 @@ public readonly struct ExpressionBuilder
         AppendSemiColon();
     }
     
-    public void AppendAssignment(string name, Action<ExpressionBuilder> callback) =>
-        AppendAssignment(name.AsSpan(), callback);
+    public void AppendAssignment(string name, Action<ExpressionBuilder> value) =>
+        AppendAssignment(name.AsSpan(), value);
     
-    public void AppendAssignment(ReadOnlySpan<char> name, Action<ExpressionBuilder> callback)
+    public void AppendAssignment(ReadOnlySpan<char> name, Action<ExpressionBuilder> value)
     {
         builder.Append(name);
 
         builder.Append(" = ");
 
-        callback(this);
+        value(this);
+
+        AppendSemiColon();
+    }
+    
+    public void AppendAssignment(Action<ExpressionBuilder> name, Action<ExpressionBuilder> value)
+    {
+        name(this);
+
+        builder.Append(" = ");
+
+        value(this);
+
+        AppendSemiColon();
+    }
+    
+    public void AppendAssignment(Action<ExpressionBuilder> name, ReadOnlySpan<char> value)
+    {
+        name(this);
+
+        builder.Append(" = ");
+
+        builder.Append(value);
 
         AppendSemiColon();
     }
@@ -288,6 +337,39 @@ public readonly struct ExpressionBuilder
         builder.Append(value);
 
         AppendSemiColon();
+    }
+
+    public void AppendOut(string name) =>
+        AppendOut(name.AsSpan());
+
+    public void AppendOut(string name, string type) =>
+        AppendOut(name.AsSpan(), type.AsSpan());
+
+    public void AppendOut(ReadOnlySpan<char> name) =>
+        AppendOut(name, string.Empty.AsSpan());
+
+    public void AppendOut(ReadOnlySpan<char> name, ReadOnlySpan<char> type)
+    {
+        builder.Append("out ");
+
+        if (!type.IsEmpty)
+        {
+            builder.Append(type);
+            builder.Append(' ');
+        }
+
+        builder.Append(name);
+    }
+
+    public void AppendArray(ReadOnlySpan<char> type, ReadOnlySpan<char> count)
+    {
+        builder.Append("new ");
+
+        builder.Append(type);
+
+        builder.Append('[');
+        builder.Append(count);
+        builder.Append(']');
     }
 
     public void AppendSemiColon()

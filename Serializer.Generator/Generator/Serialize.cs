@@ -323,8 +323,9 @@ public static class Serialize
             
         string newFullTypeName = generic.ToDisplayString(Formats.GlobalFullNamespaceFormat);
 
-        if (fullTypeName.Span.SequenceEqual(Types.ListGeneric) && generic.IsUnmanagedType)
+        if (generic.IsUnmanagedType && fullTypeName.Span.SequenceEqual(Types.ListGeneric))
         {
+            GenerateCountStorage(builder, name, "Count");
             GenerateSpanConversionWrite(builder, name, Types.CollectionsMarshal);
                 
             // builder.Append($"{OffsetParameterName} += ");
@@ -398,36 +399,6 @@ public static class Serialize
         // increase offset
         // builder.Append($"{OffsetParameterName} += ");
         // GenerateCollectionByteSize(builder, name, fullTypeName, "Length");
-    }
-
-    private static void GenerateCollectionByteSize(StringBuilder builder, ReadOnlySpan<char> name,
-        ReadOnlySpan<char> fullTypeName, string lengthName)
-    {
-        builder.Append(name);
-        builder.Append('.');
-        builder.Append(lengthName);
-        builder.Append(" * ");
-        GenerateSizeOf(builder, fullTypeName);
-    }
-
-    private static void GenerateSizeOf(StringBuilder builder, ReadOnlySpan<char> fullTypeName)
-    {
-        builder.Append($"{Types.Unsafe}.SizeOf<");
-        builder.Append(fullTypeName);
-        builder.Append(">();");
-    }
-
-    private static ReadOnlySpan<char> GetPureName(ReadOnlySpan<char> name)
-    {
-        int dotIndex = name.LastIndexOf('.');
-        int startIndex = dotIndex + 1;
-
-        int arrayIndexingIndex = name[startIndex..].IndexOf('[');
-        int endIndex = arrayIndexingIndex == -1 ? name.Length : arrayIndexingIndex + startIndex;
-
-        int length = endIndex - startIndex;
-
-        return name.Slice(startIndex, length);
     }
 
     private static void GenerateArray(CodeBuilder builder, char[] name, ITypeSymbol type, ReadOnlyMemory<char> fullTypeName, int loopNestingLevel)

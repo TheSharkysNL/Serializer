@@ -98,6 +98,7 @@ public static class Serialize
 
     private static void GenerateSerializationInternal(CodeBuilder builder, char[] name, ITypeSymbol type, ReadOnlyMemory<char> fullTypeName, bool isNullableType, int loopNestingLevel = 0)
     {
+        ITypeSymbol? collectionType;
         if (type.Kind == SymbolKind.ArrayType) // is array
         {
             GenerateArray(builder, name, type, fullTypeName, loopNestingLevel);
@@ -117,17 +118,17 @@ public static class Serialize
             // currently no encoding for fast deserialization, TODO: maybe add parameter to indicate that the object should be serialized with the least amount of bytes possible
             GenerateUnmanagedArray(builder, name); 
         } 
-        else if (IsGenericListType(type)) // is IList<T> or IReadOnlyList<T>
+        else if ((collectionType = IsGenericListType(type)) is not null) // is IList<T> or IReadOnlyList<T>
         {
-            GenerateList(builder, name, type, fullTypeName, loopNestingLevel);
+            GenerateList(builder, name, collectionType, fullTypeName, loopNestingLevel);
         } 
-        else if (IsGenericICollectionType(type)) // is ICollection<T> or IReadOnlyCollection<T>
+        else if ((collectionType = IsGenericICollectionType(type)) is not null) // is ICollection<T> or IReadOnlyCollection<T>
         {
-            GenerateCollection(builder, name, type, loopNestingLevel);
+            GenerateCollection(builder, name, collectionType, loopNestingLevel);
         }
-        else if (IsGenericIEnumerableType(type)) // is IEnumerable<T>
+        else if ((collectionType = IsGenericIEnumerableType(type)) is not null) // is IEnumerable<T>
         {
-            GenerateEnumerable(builder, name, type, loopNestingLevel);
+            GenerateEnumerable(builder, name, collectionType, loopNestingLevel);
         } 
         else if (type.IsAbstract || type.FullNamesMatch(Types.Object) || type.TypeKind == TypeKind.Dynamic) // is Object, abstract or dynamic
         {
@@ -160,19 +161,32 @@ public static class Serialize
         }
     }
 
-    private static bool IsGenericListType(ITypeSymbol type) =>
-        type is INamedTypeSymbol { IsGenericType: true, TypeArguments.Length: 1 } &&
-        (type.IsOrInheritsFrom(Types.IReadonlyListGeneric) != InheritingTypes.None ||
-         type.IsOrInheritsFrom(Types.IListGeneric) != InheritingTypes.None);
+    private static ITypeSymbol? IsGenericListType(ITypeSymbol type)
+    {
+        ITypeSymbol? foundType;
+        if ((foundType = type.IsOrInheritsFrom(Types.IListGeneric)) is not null ||
+            (foundType = type.IsOrInheritsFrom(Types.IReadonlyListGeneric)) is not null)
+        {
+            return foundType;
+        }
 
-    private static bool IsGenericIEnumerableType(ITypeSymbol type) =>
-        type is INamedTypeSymbol { IsGenericType: true, TypeArguments.Length: 1 } &&
-        type.IsOrInheritsFrom(Types.IEnumerableGeneric) != InheritingTypes.None;
+        return null;
+    }
 
-    private static bool IsGenericICollectionType(ITypeSymbol type) =>
-        type is INamedTypeSymbol { IsGenericType: true, TypeArguments.Length: 1 } &&
-        (type.IsOrInheritsFrom(Types.ICollectionGeneric) != InheritingTypes.None ||
-         type.IsOrInheritsFrom(Types.IReadOnlyCollectionGeneric) != InheritingTypes.None);
+    private static ITypeSymbol? IsGenericIEnumerableType(ITypeSymbol type) =>
+        type.IsOrInheritsFrom(Types.IEnumerableGeneric);
+
+    private static ITypeSymbol? IsGenericICollectionType(ITypeSymbol type)
+    {
+        ITypeSymbol? foundType;
+        if ((foundType = type.IsOrInheritsFrom(Types.ICollectionGeneric)) is not null ||
+            (foundType = type.IsOrInheritsFrom(Types.IReadOnlyCollectionGeneric)) is not null)
+        {
+            return foundType;
+        }
+
+        return null;
+    }
 
     private static void GenerateInt32Write(CodeBuilder builder, ReadOnlyMemory<char> name)
     {

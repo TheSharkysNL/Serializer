@@ -103,6 +103,10 @@ public static class Deserialize
         else if (IsConstructedFromArray(fullTypeName.Span, type))
         {
             GenerateArray(builder, name, type, fullTypeName, loopNestingLevel);
+        } 
+        else if (type.InheritsFrom(Types.ICollectionGeneric) is not null)
+        {
+            
         }
         else
         {

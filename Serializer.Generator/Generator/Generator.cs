@@ -49,8 +49,8 @@ public class Generator : ISourceGenerator
         
         foreach (TypeDeclarationSyntax inheritingType in inheritingTypes)
         {
-            InheritingTypes type = inheritingType.InheritsFrom(SerializableFullNamespace, compilation, token);
-            if (type == InheritingTypes.None)
+            INamedTypeSymbol? type = inheritingType.InheritsFrom(SerializableFullNamespace, compilation, token);
+            if (type is null)
             {
                 continue;
             }

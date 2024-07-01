@@ -93,7 +93,14 @@ public static class Deserialize
         ReadOnlyMemory<char> fullTypeName, int loopNestingLevel)
     {
         INamedTypeSymbol? collectionType;
-        if (fullTypeName.Span.SequenceEqual(Types.String))
+        if (type.IsOrInheritsFrom(Types.ISerializable) is not null)
+        {
+            builder.GetExpressionBuilder().AppendAssignment(name,
+                expressionBuilder => expressionBuilder.AppendMethodCall(
+                    $"{type.ToDisplayString(Formats.GlobalFullGenericNamespaceFormat)}.Deserialize",
+                    (argumentBuilder, _) => argumentBuilder.AppendValue(StreamParameterName), 1));
+        }
+        else if (fullTypeName.Span.SequenceEqual(Types.String))
         {
             GenerateString(builder, name);
         }
@@ -168,8 +175,8 @@ public static class Deserialize
         ReadOnlyMemory<char> fullTypeName, string countVarName)
     {
         ImmutableArray<ISymbol> members = type.GetMembers();
-        IMethodSymbol? capacityConstructor = members.FindConstructor([Types.Int32]);
-        if (capacityConstructor is not null)
+        bool hasCapacityConstructor = members.FindConstructor([Types.Int32]) is not null;
+        if (hasCapacityConstructor)
         {
             builder.GetExpressionBuilder().AppendAssignment(name,
                 expressionBuilder => expressionBuilder.AppendNewObject(fullTypeName.Span, (argumentBuilder, _) =>

@@ -27,4 +27,7 @@ public static class Types
     public const string DeserializeHelpers = "global::Serializer.DeserializeHelpers";
     public const string Char = "global::System.Char";
     public const string Span = "global::System.Span";
+    public const string IDictionaryGeneric = "global::System.Collections.Generic.IDictionary";
+    private const string SerializableName = "ISerializable";
+    public const string ISerializable = $"global::Serializer.{SerializableName}";
 }

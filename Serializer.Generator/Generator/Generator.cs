@@ -12,9 +12,6 @@ namespace Serializer.Generator;
 [Generator]
 public class Generator : ISourceGenerator
 {
-    private const string SerializableName = "ISerializable";
-    private const string SerializableFullNamespace = $"global::Serializer.{SerializableName}";
-
     private const string DeserializeFunctionName = "Deserialize";
     private const string SerializeFunctionName = "Serialize";
 
@@ -49,7 +46,7 @@ public class Generator : ISourceGenerator
         
         foreach (TypeDeclarationSyntax inheritingType in inheritingTypes)
         {
-            INamedTypeSymbol? type = inheritingType.InheritsFrom(SerializableFullNamespace, compilation, token);
+            INamedTypeSymbol? type = inheritingType.InheritsFrom(Types.ISerializable, compilation, token);
             if (type is null)
             {
                 continue;

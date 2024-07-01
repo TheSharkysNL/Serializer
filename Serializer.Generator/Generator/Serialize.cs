@@ -99,7 +99,14 @@ public static class Serialize
     private static void GenerateSerializationInternal(CodeBuilder builder, char[] name, ITypeSymbol type, ReadOnlyMemory<char> fullTypeName, bool isNullableType, int loopNestingLevel = 0)
     {
         ITypeSymbol? collectionType;
-        if (type.Kind == SymbolKind.ArrayType) // is array
+        if (type.IsOrInheritsFrom(Types.ISerializable) is not null) // is ISerializable<T>
+        {
+            builder.GetExpressionBuilder().AppendMethodCall($"{StreamParameterName}.WriteByte",
+                (expressionBuilder, _) => expressionBuilder.AppendValue("0"), 1);
+            builder.GetExpressionBuilder().AppendMethodCall($"{new string(name)}.Serialize",
+                (argumentBuilder, _) => argumentBuilder.AppendValue(StreamParameterName), 1);
+        }
+        else if (type.Kind == SymbolKind.ArrayType) // is array
         {
             GenerateArray(builder, name, type, fullTypeName, loopNestingLevel);
         }

@@ -18,6 +18,8 @@ public static class Serialize
     private const string UInt24Max = "16777215";
 
     private const string BindingFlagsInstancePrivate = $"{Types.BindingFlags}.Instance | {Types.BindingFlags}.NonPublic";
+
+    private static bool IsInnerType = false;
     
     public static void GenerateForSymbol(CodeBuilder builder, ITypeSymbol symbol, ReadOnlyMemory<char> namePrefix = default)
     {
@@ -95,8 +97,45 @@ public static class Serialize
         
         GenerateSerialization(builder, memberNameBuffer, type, type.ToDisplayString(Formats.GlobalFullNamespaceFormat).AsMemory());
     }
+    
+    private static void GenerateSerialization(CodeBuilder builder, char[] name, ITypeSymbol type, ReadOnlyMemory<char> fullTypeName, int loopNestingLevel = 0)
+    {
+        bool isNullableType = type.IsNullableType(fullTypeName.Span);
+        if (isNullableType)
+        {
+            builder.AppendIf<object?>(name, null,
+                builder =>
+                {
+                    GenerateWriteForInnerType(builder);
+                    GenerateSerializationInternal(builder, name, type, fullTypeName, true, loopNestingLevel);
+                }, true);
+            
+            builder.AppendElse(builder =>
+                builder.GetExpressionBuilder().AppendMethodCall($"{StreamParameterName}.WriteByte",
+                    (expressionBuilder, index) =>
+                        expressionBuilder.AppendValue(IsNullByte)
+                    , 1));
+        }
+        else
+        {
+            GenerateWriteForInnerType(builder);
+            GenerateSerializationInternal(builder, name, type, fullTypeName, false, loopNestingLevel);
+        }
+    }
 
-    private static void GenerateSerializationInternal(CodeBuilder builder, char[] name, ITypeSymbol type, ReadOnlyMemory<char> fullTypeName, bool isNullableType, int loopNestingLevel = 0)
+    private static void GenerateWriteForInnerType(CodeBuilder builder)
+    {
+        if (!IsInnerType) {return;}
+        
+        IsInnerType = false;
+        builder.GetExpressionBuilder().AppendMethodCall($"{StreamParameterName}.WriteByte",
+            (expressionBuilder, index) =>
+                expressionBuilder.AppendValue(0)
+            , 1);
+    }
+
+    private static void GenerateSerializationInternal(CodeBuilder builder, char[] name, ITypeSymbol type,
+        ReadOnlyMemory<char> fullTypeName, bool isNullableType, int loopNestingLevel = 0)
     {
         ITypeSymbol? collectionType;
         if (type.IsOrInheritsFrom(Types.ISerializable) is not null) // is ISerializable<T>
@@ -114,57 +153,43 @@ public static class Serialize
         {
             if (isNullableType)
             {
-                builder.GetExpressionBuilder().AppendMethodCall($"{StreamParameterName}.WriteByte", (expressionBuilder, index) => 
-                    expressionBuilder.AppendValue(0)
+                builder.GetExpressionBuilder().AppendMethodCall($"{StreamParameterName}.WriteByte",
+                    (expressionBuilder, index) =>
+                        expressionBuilder.AppendValue(0)
                     , 1);
             }
+
             GenerateReadUnmanagedType(builder, name, fullTypeName);
-        } 
+        }
         else if (fullTypeName.Span.SequenceEqual(Types.String.AsSpan())) // is string
         {
             // currently no encoding for fast deserialization, TODO: maybe add parameter to indicate that the object should be serialized with the least amount of bytes possible
-            GenerateUnmanagedArray(builder, name); 
-        } 
+            GenerateUnmanagedArray(builder, name);
+        }
         else if ((collectionType = IsGenericListType(type)) is not null) // is IList<T> or IReadOnlyList<T>
         {
             GenerateList(builder, name, collectionType, fullTypeName, loopNestingLevel);
-        } 
-        else if ((collectionType = IsGenericICollectionType(type)) is not null) // is ICollection<T> or IReadOnlyCollection<T>
+        }
+        else if
+            ((collectionType =
+                IsGenericICollectionType(type)) is not null) // is ICollection<T> or IReadOnlyCollection<T>
         {
             GenerateCollection(builder, name, collectionType, loopNestingLevel);
         }
         else if ((collectionType = IsGenericIEnumerableType(type)) is not null) // is IEnumerable<T>
         {
             GenerateEnumerable(builder, name, collectionType, loopNestingLevel);
-        } 
-        else if (type.IsAbstract || type.FullNamesMatch(Types.Object) || type.TypeKind == TypeKind.Dynamic) // is Object, abstract or dynamic
+        }
+        else if (type.IsAbstract || type.FullNamesMatch(Types.Object) ||
+                 type.TypeKind == TypeKind.Dynamic) // is Object, abstract or dynamic
         {
-            throw new NotSupportedException($"object, abstract and dynamic types are currently not supported"); // TODO: get runtime properties and fields
+            throw new NotSupportedException(
+                $"object, abstract and dynamic types are currently not supported"); // TODO: get runtime properties and fields
         }
         else
         {
+            IsInnerType = true;
             GenerateForSymbol(builder, type, name);
-        }
-    }
-
-    private static void GenerateSerialization(CodeBuilder builder, char[] name, ITypeSymbol type, ReadOnlyMemory<char> fullTypeName, int loopNestingLevel = 0)
-    {
-        bool isNullableType = type.IsNullableType(fullTypeName.Span);
-        if (isNullableType)
-        {
-            builder.AppendIf<object?>(name, null,
-                builder => GenerateSerializationInternal(builder, name, type, fullTypeName, true, loopNestingLevel)
-                , true);
-            
-            builder.AppendElse(builder =>
-                builder.GetExpressionBuilder().AppendMethodCall($"{StreamParameterName}.WriteByte",
-                    (expressionBuilder, index) =>
-                        expressionBuilder.AppendValue(IsNullByte)
-                    , 1));
-        }
-        else
-        {
-            GenerateSerializationInternal(builder, name, type, fullTypeName, false, loopNestingLevel);
         }
     }
 

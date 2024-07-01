@@ -719,6 +719,26 @@ public readonly struct CodeBuilder
         AppendScope(callback);
     }
 
+    public void AppendField(ReadOnlySpan<char> name, ReadOnlySpan<char> typeName, string modifiers)
+    {
+        builder.Append(modifiers.AsSpan().Trim());
+
+        builder.Append(' ');
+        AppendTypeAndName(name, typeName);
+
+        builder.Append(';');
+    }
+    
+    public void AppendProperty(ReadOnlySpan<char> name, ReadOnlySpan<char> typeName, string modifiers)
+    {
+        builder.Append(modifiers.AsSpan().Trim());
+
+        builder.Append(' ');
+        AppendTypeAndName(name, typeName);
+
+        builder.Append(" { get; }");
+    }
+
     public ExpressionBuilder GetExpressionBuilder() =>
         ExpressionBuilder.FromBuilder(builder);
 

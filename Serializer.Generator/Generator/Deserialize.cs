@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Microsoft.CodeAnalysis;
 using Serializer.Builders;
@@ -7,11 +8,18 @@ using Serializer.Extensions;
 
 namespace Serializer.Generator;
 
-public static class Deserialize
+public class Deserialize // TODO: clean up this whole class :(
 {
     private const string StreamParameterName = Generator.StreamParameterName;
+
+    private List<ITypeSymbol> typesToGenerate = new(8);
+
+    public Deserialize()
+    {
+        
+    }
     
-    public static void GenerateForSymbol(CodeBuilder builder, string methodName, string returnType, ITypeSymbol symbol)
+    public void GenerateForSymbol(CodeBuilder builder, string methodName, string returnType, ITypeSymbol symbol)
     {
         ImmutableArray<ISymbol> members = symbol.GetMembers();
         ISymbol[] serializableMembers = members.GetSerializableMembers().ToArray();
@@ -25,7 +33,7 @@ public static class Deserialize
         bool alreadyHasConstructor = members.FindConstructor(types) is not null;
         if (!alreadyHasConstructor)
         {
-            GenerateConstructor(builder, symbol, serializableMembers, members, types);
+            GenerateConstructor(builder, symbol.Name, serializableMembers, types);
         }
         
         Generator.GenerateMainMethod(builder, methodName, returnType, builder =>
@@ -50,12 +58,14 @@ public static class Deserialize
                     parameterBuilder.AppendValue(serializableMembers[index].Name);
                 }, serializableMembers.Length));
         });
+        
+        GenerateTypesList(builder);
     }
 
-    private static void GenerateConstructor(CodeBuilder builder, ITypeSymbol symbol, ISymbol[] serializableMembers, ImmutableArray<ISymbol> members, string[] types)
+    private static void GenerateConstructor(CodeBuilder builder, string name, ISymbol[] serializableMembers, string[] types, string modifiers = "private")
     {
         IEnumerable<(string type, string name)> parameters = serializableMembers.Select((symbol, index) => (types[index], symbol.Name));
-        builder.AppendConstructor(symbol.Name, parameters, "private", builder =>
+        builder.AppendConstructor(name, parameters, modifiers, builder =>
         {
             foreach (ISymbol member in serializableMembers)
             {
@@ -66,7 +76,7 @@ public static class Deserialize
         });
     }
 
-    private static void GenerateDeserialization(CodeBuilder builder, string name, ITypeSymbol type,
+    private void GenerateDeserialization(CodeBuilder builder, string name, ITypeSymbol type,
         ReadOnlyMemory<char> fullTypeName, int loopNestingLevel = 0)
     {
         if (type.IsNullableType(fullTypeName.Span))
@@ -89,7 +99,7 @@ public static class Deserialize
         }
     }
 
-    private static void GenerateDeserializationInternal(CodeBuilder builder, string name, ITypeSymbol type,
+    private void GenerateDeserializationInternal(CodeBuilder builder, string name, ITypeSymbol type,
         ReadOnlyMemory<char> fullTypeName, int loopNestingLevel)
     {
         INamedTypeSymbol? collectionType;
@@ -118,13 +128,61 @@ public static class Deserialize
             ITypeSymbol generic = collectionType.TypeArguments[0];
             GenerateCollection(builder, name, type, generic, loopNestingLevel);
         }
+        else if (type.IsAbstract || type.FullNamesMatch(Types.Object) || type.TypeKind == TypeKind.Dynamic)
+        {
+            throw new NotSupportedException($"object, abstract and dynamic types are currently not supported"); // TODO: get runtime properties and fields
+        }
         else
         {
-            throw new NotImplementedException($"type {fullTypeName} is currently not implemented");
+            typesToGenerate.Add(type);
+            ISymbol[] serializableMembers = type.GetMembers().GetSerializableMembers().ToArray();
+            foreach (ISymbol member in serializableMembers)
+            {
+                ITypeSymbol innerType = member.GetMemberType();
+                string fullGenericTypeName = innerType.ToDisplayString(Formats.GlobalFullGenericNamespaceFormat);
+                
+                int genericStart = fullGenericTypeName.IndexOf('<');
+                int endIndex = genericStart == -1 ? fullGenericTypeName.Length : genericStart;
+                ReadOnlyMemory<char> fullInnerTypeName = fullGenericTypeName.AsMemory(0, endIndex);
+
+                string varName = type.Name + member.Name;
+                builder.AppendVariable(varName, fullGenericTypeName, "default");
+
+                GenerateDeserialization(builder, varName, innerType, fullInnerTypeName, loopNestingLevel + 1);
+            }
+
+            string generatedTypeName = GetGeneratedTypeName(type);
+            string generatedVarName = "generated" + name;
+            builder.AppendVariable(generatedVarName, generatedTypeName, expressionBuilder =>
+            {
+                expressionBuilder.AppendNewObject(generatedTypeName,
+                    (argumentBuilder, index) =>
+                        argumentBuilder.AppendValue(type.Name + serializableMembers[index].Name),
+                    serializableMembers.Length);
+            });
+            
+            builder.GetExpressionBuilder().AppendAssignment(name, expressionBuilder =>
+            {
+                expressionBuilder.AppendMethodCall($"{Types.Unsafe}.As", $"{generatedTypeName}, {fullTypeName}",
+                    (expressionBuilder, _) =>
+                    {
+                        expressionBuilder.AppendRef(expressionBuilder =>
+                        {
+                            expressionBuilder.AppendValue(generatedVarName);
+                        });
+                    }, 1);
+            });
+
+            if (type.IsReferenceType)
+            {
+                builder.GetExpressionBuilder()
+                .AppendMethodCall($"{Types.DeserializeHelpers}<{fullTypeName}>.SetAsVirtualTable",
+                    (expressionBuilder, _) => expressionBuilder.AppendValue(name), 1);
+            }
         }
     }
 
-    private static void GenerateCollection(CodeBuilder builder, string name, ITypeSymbol type, ITypeSymbol generic,
+    private void GenerateCollection(CodeBuilder builder, string name, ITypeSymbol type, ITypeSymbol generic,
         int loopNestingLevel)
     {
         builder.AppendScope(builder =>
@@ -222,7 +280,7 @@ public static class Deserialize
         return null;
     }
 
-    private static void GenerateArray(CodeBuilder builder, string name, ITypeSymbol type, int loopNestingLevel)
+    private void GenerateArray(CodeBuilder builder, string name, ITypeSymbol type, int loopNestingLevel)
     {
         builder.AppendScope(builder =>
         {
@@ -368,4 +426,50 @@ public static class Deserialize
             }, 1);
         }, 1);
     }
+
+    private void GenerateTypesList(CodeBuilder builder)
+    {
+        for (int i = 0; i < typesToGenerate.Count; i++)
+        {
+            ITypeSymbol type = typesToGenerate[i];
+            GenerateType(builder, type);
+        }
+    }
+
+    private static void GenerateType(CodeBuilder builder, ITypeSymbol type)
+    {
+        string typeName = type.IsReferenceType ? "class" : "struct";
+        string generatedTypeName = GetGeneratedTypeName(type);
+        
+        builder.AppendType(generatedTypeName, typeName, "private", builder =>
+        {
+            ISymbol[] serializableMembers = type.GetMembers().GetSerializableMembers().ToArray();
+
+            foreach (ISymbol member in serializableMembers)
+            {
+                if (member is IFieldSymbol field)
+                {
+                    builder.AppendField(field.Name, field.Type.ToDisplayString(Formats.GlobalFullGenericNamespaceFormat), "private");
+                }
+                else
+                {
+                    Debug.Assert(member is IPropertySymbol);
+                    IPropertySymbol property = (IPropertySymbol)member;
+                    
+                    builder.AppendField(property.Name, property.Type.ToDisplayString(Formats.GlobalFullGenericNamespaceFormat), "private");
+                }
+            }
+            
+            string[] types = new string[serializableMembers.Length];
+            for (int i = 0; i < types.Length; i++)
+            {
+                types[i] = serializableMembers[i].GetMemberType().ToDisplayString(Formats.GlobalFullGenericNamespaceFormat);
+            }
+
+            GenerateConstructor(builder, generatedTypeName, serializableMembers, types, "public");
+        });
+    }
+
+    private static string GetGeneratedTypeName(ITypeSymbol type) =>
+        "Generated" + type.Name;
 }

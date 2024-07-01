@@ -92,6 +92,7 @@ public static class Deserialize
     private static void GenerateDeserializationInternal(CodeBuilder builder, string name, ITypeSymbol type,
         ReadOnlyMemory<char> fullTypeName, int loopNestingLevel)
     {
+        INamedTypeSymbol? collectionType;
         if (fullTypeName.Span.SequenceEqual(Types.String))
         {
             GenerateString(builder, name);
@@ -102,15 +103,91 @@ public static class Deserialize
         } 
         else if (IsConstructedFromArray(fullTypeName.Span, type))
         {
-            GenerateArray(builder, name, type, fullTypeName, loopNestingLevel);
+            GenerateArray(builder, name, type, loopNestingLevel);
         } 
-        else if (type.InheritsFrom(Types.ICollectionGeneric) is not null)
+        else if ((collectionType = type.InheritsFrom(Types.ICollectionGeneric)) is not null)
         {
-            
+            Debug.Assert(collectionType.TypeArguments.Length > 0); // should be a ICollection<T> type here so must have 1 argument
+            ITypeSymbol generic = collectionType.TypeArguments[0];
+            GenerateCollection(builder, name, type, generic, loopNestingLevel);
         }
         else
         {
             throw new NotImplementedException($"type {fullTypeName} is currently not implemented");
+        }
+    }
+
+    private static void GenerateCollection(CodeBuilder builder, string name, ITypeSymbol type, ITypeSymbol generic,
+        int loopNestingLevel)
+    {
+        builder.AppendScope(builder =>
+        {
+            string genericTypeName = generic.ToDisplayString(Formats.GlobalFullNamespaceFormat);
+        
+            string countVarName = "count" + (char)(loopNestingLevel + 'A');
+            GenerateCountVariable(builder, countVarName);
+
+            string fullGenericType = type.ToDisplayString(Formats.GlobalFullGenericNamespaceFormat);
+            GenerateCollectionInitialization(builder, name, type, fullGenericType.AsMemory(), countVarName);
+
+            if (generic.IsUnmanagedType && fullGenericType.StartsWith(Types.ListGeneric))
+            {
+                builder.GetExpressionBuilder().AppendMethodCall($"{Types.CollectionsMarshal}.SetCount",
+                    (expressionBuilder, index) => expressionBuilder.AppendValue(index == 0 ? name : countVarName), 2);
+                
+                builder.GetExpressionBuilder().AppendMethodCall($"{StreamParameterName}.Read",
+                    (expressionBuilder, _) =>
+                    {
+                        expressionBuilder.AppendMethodCall($"{Types.MemoryMarshal}.AsBytes", (expressionBuilder, _) =>
+                        {
+                            expressionBuilder.AppendMethodCall($"{Types.CollectionsMarshal}.AsSpan",
+                                (expressionBuilder, _) =>
+                                {
+                                    expressionBuilder.AppendValue(name);
+                                }, 1);
+                        }, 1);
+                    }, 1);
+                
+                return;
+            }
+            
+            char loopCharacter = (char)('i' + loopNestingLevel);
+            ReadOnlySpan<char> loopCharacterSpan = MemoryMarshal.CreateReadOnlySpan(ref loopCharacter, 1);
+            string varName = name + (char)(loopNestingLevel + 'A');
+            builder.AppendFor(loopCharacterSpan, countVarName, builder =>
+            {
+                builder.AppendVariable(varName, genericTypeName, "default");
+                GenerateDeserialization(builder, varName, generic, genericTypeName.AsMemory(), loopNestingLevel + 1);
+                builder.GetExpressionBuilder().AppendMethodCall($"{name}.Add",
+                    (expressionBuilder, _) => expressionBuilder.AppendValue(varName), 1);
+            });
+        });
+    }
+
+    private static void GenerateCollectionInitialization(CodeBuilder builder, string name, ITypeSymbol type,
+        ReadOnlyMemory<char> fullTypeName, string countVarName)
+    {
+        ImmutableArray<ISymbol> members = type.GetMembers();
+        IMethodSymbol? capacityConstructor = members.FindConstructor([Types.Int32]);
+        if (capacityConstructor is not null)
+        {
+            builder.GetExpressionBuilder().AppendAssignment(name,
+                expressionBuilder => expressionBuilder.AppendNewObject(fullTypeName.Span, (argumentBuilder, _) =>
+                {
+                    argumentBuilder.AppendValue(countVarName);
+                }, 1));
+        }
+        else
+        {
+            IMethodSymbol? constructor = members.FindConstructor(ReadOnlySpan<string>.Empty);
+            if (constructor is null)
+            {
+                throw new Exception(
+                    $"cannot initialize {fullTypeName}, no empty constructor found");
+            }
+
+            builder.GetExpressionBuilder().AppendAssignment(name,
+                expressionBuilder => expressionBuilder.AppendNewObject(fullTypeName.Span));
         }
     }
 
@@ -138,7 +215,7 @@ public static class Deserialize
         return null;
     }
 
-    private static void GenerateArray(CodeBuilder builder, string name, ITypeSymbol type, ReadOnlyMemory<char> fullTypeName, int loopNestingLevel)
+    private static void GenerateArray(CodeBuilder builder, string name, ITypeSymbol type, int loopNestingLevel)
     {
         builder.AppendScope(builder =>
         {

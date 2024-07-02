@@ -22,7 +22,7 @@ public class Deserialize // TODO: clean up this whole class :(
     public void GenerateForSymbol(CodeBuilder builder, string methodName, string returnType, ITypeSymbol symbol)
     {
         ImmutableArray<ISymbol> members = symbol.GetMembers();
-        ISymbol[] serializableMembers = members.GetSerializableMembers().ToArray();
+        ISymbol[] serializableMembers = members.GetSerializableMembers(symbol).ToArray();
 
         string[] types = new string[serializableMembers.Length];
         for (int i = 0; i < types.Length; i++)
@@ -138,7 +138,7 @@ public class Deserialize // TODO: clean up this whole class :(
         else
         {
             typesToGenerate.Add(type);
-            ISymbol[] serializableMembers = type.GetMembers().GetSerializableMembers().ToArray();
+            ISymbol[] serializableMembers = type.GetMembers().GetSerializableMembers(type).ToArray();
             foreach (ISymbol member in serializableMembers)
             {
                 ITypeSymbol innerType = member.GetMemberType();
@@ -447,7 +447,7 @@ public class Deserialize // TODO: clean up this whole class :(
         
         builder.AppendType(generatedTypeName, typeName, "private", builder =>
         {
-            ISymbol[] serializableMembers = type.GetMembers().GetSerializableMembers().ToArray();
+            ISymbol[] serializableMembers = type.GetMembers().GetSerializableMembers(type).ToArray();
 
             foreach (ISymbol member in serializableMembers)
             {

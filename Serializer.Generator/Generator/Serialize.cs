@@ -24,7 +24,7 @@ public static class Serialize
     public static void GenerateForSymbol(CodeBuilder builder, ITypeSymbol symbol, ReadOnlyMemory<char> namePrefix = default)
     {
         ImmutableArray<ISymbol> members = symbol.GetMembers();
-        IEnumerable<ISymbol> serializableMembers = members.GetSerializableMembers();
+        IEnumerable<ISymbol> serializableMembers = members.GetSerializableMembers(symbol);
 
         foreach (ISymbol member in serializableMembers)
         {

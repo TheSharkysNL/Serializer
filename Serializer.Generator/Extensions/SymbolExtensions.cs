@@ -9,8 +9,16 @@ namespace Serializer.Extensions;
 
 public static class SymbolExtensions
 {
-    public static IEnumerable<ISymbol> GetSerializableMembers(this ImmutableArray<ISymbol> members)
+    public static IEnumerable<ISymbol> GetSerializableMembers(this ImmutableArray<ISymbol> members, ITypeSymbol type)
     {
+        if (type.BaseType is not null)
+        {
+            IEnumerable<ISymbol> serializableMembers = type.BaseType.GetMembers().GetSerializableMembers(type.BaseType);
+            foreach (ISymbol symbol in serializableMembers)
+            {
+                yield return symbol;
+            }
+        }
         for (int i = 0; i < members.Length; i++)
         {
             ISymbol symbol = members[i];

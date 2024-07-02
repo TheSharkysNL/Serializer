@@ -37,38 +37,7 @@ public static unsafe class DeserializeHelpers<T>
 public static class DeserializeHelpers
 {
     internal const byte NullByte = SerializeHelpers.NullByte;
-
-    private delegate object BoxMethod(Type type, ref byte data);
-    private static BoxMethod box;
-
-    static DeserializeHelpers()
-    {
-        DynamicMethod method = new(string.Empty, typeof(object), [typeof(Type), typeof(byte).MakeByRefType()]);
-
-        ILGenerator generator = method.GetILGenerator();
-        
-        generator.Emit(OpCodes.Ldarg_0);
-
-        MethodInfo? createObjectMethod =
-            typeof(RuntimeHelpers).GetMethod("GetUninitializedObject", BindingFlags.Public | BindingFlags.Static);
-        Debug.Assert(createObjectMethod is not null);
-        generator.Emit(OpCodes.Call, createObjectMethod);
-
-        MethodInfo? getMethodTableMethod =
-            typeof(RuntimeHelpers).GetMethod("GetMethodTable", BindingFlags.NonPublic | BindingFlags.Static);
-        Debug.Assert(getMethodTableMethod is not null);
-        generator.Emit(OpCodes.Call, getMethodTableMethod);
-
-        MethodInfo? boxMethod = typeof(RuntimeHelpers).GetMethod("Box", BindingFlags.NonPublic | BindingFlags.Static);
-        Debug.Assert(boxMethod is not null);
-        generator.Emit(OpCodes.Ldarg_1);
-        generator.Emit(OpCodes.Call, boxMethod);
-        
-        generator.Emit(OpCodes.Ret);
-
-        box = method.CreateDelegate<BoxMethod>();
-    }
-
+    
     public static object? Deserialize(Stream stream)
     {
         int sizeOrNullByte = stream.ReadByte();
@@ -128,29 +97,11 @@ public static class DeserializeHelpers
     private static object ReadUnmanagedType(Type type, Stream stream)
     {
         int size = SerializeHelpers.GetSizeOf(type);
-        if (size <= 1024)
-        {
-            Span<byte> bytes = stackalloc byte[size];
-            return ReadUnmanagedTypeInternal(type, stream, bytes);
-        }
-        else
-        {
-            byte[] rentedArray = ArrayPool<byte>.Shared.Rent(size);
-            Span<byte> bytes = rentedArray.AsSpan(0, size);
+        object value = RuntimeHelpers.GetUninitializedObject(type);
 
-            object readObject = ReadUnmanagedTypeInternal(type, stream, bytes);
-
-            ArrayPool<byte>.Shared.Return(rentedArray);
-            
-            return readObject;
-        }
-    }
-
-    private static object ReadUnmanagedTypeInternal(Type type, Stream stream, Span<byte> bytes)
-    {
-        int readBytes = stream.Read(bytes);
-        ref byte byteRef = ref MemoryMarshal.GetReference(bytes);
-        return box(type, ref byteRef);
+        Span<byte> boxedPosition = SerializeHelpers.GetBoxedValue(value, size);
+        int readBytes = stream.Read(boxedPosition);
+        return value;
     }
 
     private static object? DeserializeInternal(Type type, Stream stream)
@@ -204,27 +155,46 @@ public static class DeserializeHelpers
             int bytesRead = stream.Read(bytes);
             return str;
         }
-        else
+        
+        object value = RuntimeHelpers.GetUninitializedObject(type);
+        FieldInfo[] fields = type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        for (int i = 0; i < fields.Length; i++)
         {
-            object value = RuntimeHelpers.GetUninitializedObject(type);
-            FieldInfo[] fields = type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-            for (int i = 0; i < fields.Length; i++)
-            {
-                FieldInfo field = fields[i];
-                string typeName = ReadStringEncoded(sizeOrNullByte, stream);
-                Type? fieldType = Type.GetType(typeName);
-                if (fieldType is null)
-                {
-                    field.SetValue(value, null);
-                }
-                else
-                {
-                    object? fieldValue = DeserializeInternal(fieldType, stream);
-                    field.SetValue(value, fieldValue);
-                }
-            }
+            FieldInfo field = fields[i];
 
-            return value;
+            if (i != 0 && field.FieldType is { IsValueType: false, IsSealed: false })
+            {
+                sizeOrNullByte = stream.ReadByte();
+            }
+            
+            Type? fieldType = GetFieldType(field, stream, sizeOrNullByte);
+            if (fieldType is null)
+            {
+                field.SetValue(value, null);
+            }
+            else
+            {
+                object? fieldValue = DeserializeInternal(fieldType, stream);
+                field.SetValue(value, fieldValue);
+            }
         }
+
+        return value;
+    }
+
+    private static Type? GetFieldType(FieldInfo field, Stream stream, int sizeOrNullByte)
+    {
+        if (field.FieldType.IsValueType || field.FieldType.IsSealed)
+        {
+            return field.FieldType;
+        }
+        
+        if (sizeOrNullByte == NullByte)
+        {
+            return null;
+        }
+        string typeName = ReadStringEncoded(sizeOrNullByte, stream);
+        Type? fieldType = Type.GetType(typeName);
+        return fieldType;
     }
 }

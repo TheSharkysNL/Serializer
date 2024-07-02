@@ -75,7 +75,7 @@ public static class SerializeHelpers
         stream.Write(boxedValue);
     }
 
-    private static void SerializeInternal<T>(T? value, Type? type, Stream stream, bool isMainType = true)
+    private static void SerializeInternal<T>(T? value, Type? type, Stream stream)
     {
         if (value is null)
         {
@@ -111,7 +111,7 @@ public static class SerializeHelpers
             for (int i = 0; i < length; i++)
             {
                 object? arrayValue = array.GetValue(i);
-                SerializeInternal(arrayValue, arrayType, stream, false);
+                SerializeInternal(arrayValue, arrayType, stream);
             }
         }
         else if (type == typeof(string))
@@ -128,10 +128,7 @@ public static class SerializeHelpers
         }
         else
         {
-            if (!isMainType)
-            {
-                stream.WriteByte(0);
-            }
+            stream.WriteByte(0);
             FieldInfo[] fields = type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
             for (int i = 0; i < fields.Length; i++)
             {
@@ -139,7 +136,7 @@ public static class SerializeHelpers
                 object? fieldValue = field.GetValue(value);
 
                 Type? valueType = GetAndWriteFieldType(field, fieldValue, stream);
-                SerializeInternal(fieldValue, valueType, stream, false);
+                SerializeInternal(fieldValue, valueType, stream);
             }
         }
     }

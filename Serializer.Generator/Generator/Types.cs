@@ -25,9 +25,13 @@ public static class Types
     public const string SafeFileHandle = "global::Microsoft.Win32.SafeHandles.SafeFileHandle";
     public const string Stream = "global::System.IO.Stream";
     public const string DeserializeHelpers = "global::Serializer.DeserializeHelpers";
+    public const string SerializeHelpers = "global::Serializer.SerializeHelpers";
     public const string Char = "global::System.Char";
     public const string Span = "global::System.Span";
     public const string IDictionaryGeneric = "global::System.Collections.Generic.IDictionary";
+    public const string ISetGeneric = "global::System.Collections.Generic.ISet";
+    public const string DictionaryGeneric = "global::System.Collections.Generic.Dictionary";
+    public const string HashSetGeneric = "global::System.Collections.Generic.HashSet";
     private const string SerializableName = "ISerializable";
     public const string ISerializable = $"global::Serializer.{SerializableName}";
 }

@@ -183,8 +183,20 @@ public static class Serialize
         else if (type.IsAbstract || type.FullNamesMatch(Types.Object) ||
                  type.TypeKind == TypeKind.Dynamic) // is Object, abstract or dynamic
         {
-            throw new NotSupportedException(
-                $"object, abstract and dynamic types are currently not supported"); // TODO: get runtime properties and fields
+            builder.GetExpressionBuilder().AppendMethodCall($"{StreamParameterName}.WriteByte",
+                (expressionBuilder, _) => expressionBuilder.AppendValue("0"), 1);
+            builder.GetExpressionBuilder().AppendMethodCall($"{Types.SerializeHelpers}.Serialize",
+                (expressionBuilder, index) =>
+                {
+                    if (index == 0)
+                    {
+                        expressionBuilder.AppendValue(name);
+                    }
+                    else
+                    {
+                        expressionBuilder.AppendValue(StreamParameterName);
+                    }
+                }, 2);
         }
         else
         {
@@ -322,7 +334,7 @@ public static class Serialize
     {
         if (numberMaxSize is not null)
         {
-            builder.AppendIf(varName, numberMaxSize, "<",
+            builder.AppendIf(varName, numberMaxSize, "<=",
                 builder => GenerateSingleCountStorageInternal(builder, varName, byteSize)
                 , @if);
         }

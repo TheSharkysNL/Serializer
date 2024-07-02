@@ -128,9 +128,12 @@ public class Deserialize // TODO: clean up this whole class :(
             ITypeSymbol generic = collectionType.TypeArguments[0];
             GenerateCollection(builder, name, type, generic, loopNestingLevel);
         }
-        else if (type.IsAbstract || type.FullNamesMatch(Types.Object) || type.TypeKind == TypeKind.Dynamic)
+        else if (type.IsAbstract || type.TypeKind == TypeKind.Interface || type.FullNamesMatch(Types.Object) || type.TypeKind == TypeKind.Dynamic)
         {
-            throw new NotSupportedException($"object, abstract and dynamic types are currently not supported"); // TODO: get runtime properties and fields
+            builder.GetExpressionBuilder().AppendCastAssignment(name,
+                type.ToDisplayString(Formats.GlobalFullGenericNamespaceFormat), expressionBuilder =>
+                    expressionBuilder.AppendMethodCall($"{Types.DeserializeHelpers}.Deserialize",
+                        (argumentBuilder, _) => argumentBuilder.AppendValue(StreamParameterName), 1));
         }
         else
         {
@@ -193,7 +196,7 @@ public class Deserialize // TODO: clean up this whole class :(
             GenerateCountVariable(builder, countVarName);
 
             string fullGenericType = type.ToDisplayString(Formats.GlobalFullGenericNamespaceFormat);
-            GenerateCollectionInitialization(builder, name, type, fullGenericType.AsMemory(), countVarName);
+            GenerateCollectionInitialization(builder, name, type, fullGenericType, countVarName);
 
             if (generic.IsUnmanagedType && fullGenericType.StartsWith(Types.ListGeneric))
             {
@@ -230,14 +233,15 @@ public class Deserialize // TODO: clean up this whole class :(
     }
 
     private static void GenerateCollectionInitialization(CodeBuilder builder, string name, ITypeSymbol type,
-        ReadOnlyMemory<char> fullTypeName, string countVarName)
+        string fullTypeName, string countVarName)
     {
         ImmutableArray<ISymbol> members = type.GetMembers();
-        bool hasCapacityConstructor = members.FindConstructor([Types.Int32]) is not null;
+        bool hasCapacityConstructor = members.FindConstructor([Types.Int32]) is not null;;
+        
         if (hasCapacityConstructor)
         {
             builder.GetExpressionBuilder().AppendAssignment(name,
-                expressionBuilder => expressionBuilder.AppendNewObject(fullTypeName.Span, (argumentBuilder, _) =>
+                expressionBuilder => expressionBuilder.AppendNewObject(fullTypeName, (argumentBuilder, _) =>
                 {
                     argumentBuilder.AppendValue(countVarName);
                 }, 1));
@@ -252,7 +256,7 @@ public class Deserialize // TODO: clean up this whole class :(
             }
 
             builder.GetExpressionBuilder().AppendAssignment(name,
-                expressionBuilder => expressionBuilder.AppendNewObject(fullTypeName.Span));
+                expressionBuilder => expressionBuilder.AppendNewObject(fullTypeName));
         }
     }
 

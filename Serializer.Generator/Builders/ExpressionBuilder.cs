@@ -339,6 +339,22 @@ public readonly struct ExpressionBuilder
         AppendSemiColon();
     }
 
+    public void AppendCastAssignment(ReadOnlySpan<char> name, ReadOnlySpan<char> type,
+        Action<ExpressionBuilder> callback)
+    {
+        builder.Append(name);
+
+        builder.Append(" = ");
+
+        builder.Append('(');
+        builder.Append(type);
+        builder.Append(')');
+
+        callback(this);
+        
+        AppendSemiColon();
+    }
+
     public void AppendOut(string name) =>
         AppendOut(name.AsSpan());
 

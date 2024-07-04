@@ -19,7 +19,7 @@ public static class Serialize
 
     private const string BindingFlagsInstancePrivate = $"{Types.BindingFlags}.Instance | {Types.BindingFlags}.NonPublic";
 
-    private static bool IsInnerType = false;
+    private static bool isInnerType = false;
     
     public static void GenerateForSymbol(CodeBuilder builder, ITypeSymbol symbol, ReadOnlyMemory<char> namePrefix = default)
     {
@@ -53,7 +53,7 @@ public static class Serialize
                 expressionBuilder =>
                 {
                     expressionBuilder.AppendDotExpression(
-                        (left) => left.AppendTypeof(containingType.ToDisplayString(Formats.GlobalFullNamespaceFormat)),
+                        (left) => left.AppendTypeof(containingType.ToDisplayString(Formats.GlobalFullGenericNamespaceFormat)),
                         (right) =>
                         {
                             right.AppendDotExpression(left =>
@@ -125,9 +125,9 @@ public static class Serialize
 
     private static void GenerateWriteForInnerType(CodeBuilder builder)
     {
-        if (!IsInnerType) {return;}
+        if (!isInnerType) {return;}
         
-        IsInnerType = false;
+        isInnerType = false;
         builder.GetExpressionBuilder().AppendMethodCall($"{StreamParameterName}.WriteByte",
             (expressionBuilder, index) =>
                 expressionBuilder.AppendValue(0)
@@ -200,7 +200,7 @@ public static class Serialize
         }
         else
         {
-            IsInnerType = true;
+            isInnerType = isNullableType;
             GenerateForSymbol(builder, type, name);
         }
     }
@@ -253,7 +253,7 @@ public static class Serialize
         Debug.Assert(type is INamedTypeSymbol { TypeArguments.Length: 1 });
         ITypeSymbol generic = ((INamedTypeSymbol)type).TypeArguments[0];
             
-        string newFullTypeName = generic.ToDisplayString(Formats.GlobalFullNamespaceFormat);
+        string newFullTypeName = generic.ToDisplayString(Formats.GlobalFullGenericNamespaceFormat);
         
         char loopCharacter = GetLoopCharacter(loopNestingLevel);
         char[] loopCharacterName = [loopCharacter];
@@ -285,7 +285,7 @@ public static class Serialize
         Debug.Assert(type is INamedTypeSymbol { TypeArguments.Length: 1 });
         ITypeSymbol generic = ((INamedTypeSymbol)type).TypeArguments[0];
             
-        string newFullTypeName = generic.ToDisplayString(Formats.GlobalFullNamespaceFormat);
+        string newFullTypeName = generic.ToDisplayString(Formats.GlobalFullGenericNamespaceFormat);
 
         GenerateCountStorage(builder, name, "Count");
             

@@ -41,9 +41,9 @@ public class Generator : ISourceGenerator
         InheritingTypesSyntaxReceiver receiver = (InheritingTypesSyntaxReceiver)context.SyntaxReceiver!;
 
         IEnumerable<TypeDeclarationSyntax> inheritingTypes = receiver.Candidates;
-        
+
         CodeBuilder builder = new(4096);
-        
+
         foreach (TypeDeclarationSyntax inheritingType in inheritingTypes)
         {
             INamedTypeSymbol? type = inheritingType.InheritsFrom(Types.ISerializable, compilation, token);
@@ -51,7 +51,7 @@ public class Generator : ISourceGenerator
             {
                 continue;
             }
-            
+
             SemanticModel model = compilation.GetSemanticModel(inheritingType.SyntaxTree);
 
             INamedTypeSymbol? symbol = model.GetDeclaredSymbol(inheritingType, token);
@@ -59,32 +59,35 @@ public class Generator : ISourceGenerator
             {
                 continue;
             }
-
+            
             string fullTypeName = symbol.ToDisplayString(Formats.GlobalFullNamespaceFormat);
             GenerateClassAndMethods(builder, fullTypeName, inheritingType, symbol, builder =>
             {
-                new Deserialize().GenerateForSymbol(builder, DeserializeFunctionName + MainFunctionPostFix, fullTypeName, symbol);
+                new Deserialize().GenerateForSymbol(builder, DeserializeFunctionName + MainFunctionPostFix,
+                    fullTypeName, symbol);
             
-                GenerateMainMethod(builder, SerializeFunctionName + MainFunctionPostFix, fullTypeName, codeBuilder =>
-                {
-                    codeBuilder.AppendVariable("initialPosition", Types.Int64,
-                        expressionBuilder => expressionBuilder.AppendDotExpression(StreamParameterName, "Position"));
-
-                    Serialize.GenerateForSymbol(codeBuilder, symbol);
-                    
-                    codeBuilder.AppendReturn(expressionBuilder =>
+                GenerateMainMethod(builder, SerializeFunctionName + MainFunctionPostFix, fullTypeName,
+                    codeBuilder =>
                     {
-                        expressionBuilder.AppendBinaryExpression(expressionBuilder =>
-                                expressionBuilder.AppendDotExpression(StreamParameterName, "Position"), 
-                            "-",
-                            "initialPosition");
+                        codeBuilder.AppendVariable("initialPosition", Types.Int64,
+                            expressionBuilder =>
+                                expressionBuilder.AppendDotExpression(StreamParameterName, "Position"));
+            
+                        Serialize.GenerateForSymbol(codeBuilder, symbol);
+            
+                        codeBuilder.AppendReturn(expressionBuilder =>
+                        {
+                            expressionBuilder.AppendBinaryExpression(expressionBuilder =>
+                                    expressionBuilder.AppendDotExpression(StreamParameterName, "Position"),
+                                "-",
+                                "initialPosition");
+                        });
                     });
-                });
             });
         }
-        
+
         string code = new CodeFormatter(builder.ToString()).ToString();
-        
+
         context.AddSource("test.g.cs", code);
     }
 

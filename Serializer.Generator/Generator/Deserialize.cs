@@ -190,7 +190,7 @@ public class Deserialize // TODO: clean up this whole class :(
     {
         builder.AppendScope(builder =>
         {
-            string genericTypeName = generic.ToDisplayString(Formats.GlobalFullNamespaceFormat);
+            string genericTypeName = generic.ToDisplayString(Formats.GlobalFullGenericNamespaceFormat);
         
             string countVarName = "count" + (char)(loopNestingLevel + 'A');
             GenerateCountVariable(builder, countVarName);
@@ -226,7 +226,7 @@ public class Deserialize // TODO: clean up this whole class :(
             {
                 builder.AppendVariable(varName, genericTypeName, "default");
                 GenerateDeserialization(builder, varName, generic, genericTypeName.AsMemory(), loopNestingLevel + 1);
-                builder.GetExpressionBuilder().AppendMethodCall($"{name}.Add",
+                builder.GetExpressionBuilder().AppendMethodCall($"(({Types.ICollectionGeneric}<{genericTypeName}>){name}).Add",
                     (expressionBuilder, _) => expressionBuilder.AppendValue(varName), 1);
             });
         });

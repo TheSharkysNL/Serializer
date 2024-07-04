@@ -49,34 +49,34 @@ namespace Test
     public partial class Test : ISerializable<Test>
     {
         public B b = new B();
-        
-        public string A { get; protected set; } = null;
-    
-        protected string B = "test value to see if the deserializer works";
-
-        protected char[] C = ['c', 'd'];
-        
-        protected byte[] T = [1, 2, 3];
-        
-        protected S[] S = [new S('l', 100)];
-        
-        protected S s2 = new('t', 10);
-        
-        protected string[] strings = ["test string 1", "test string 2", "test string 3"];
-        
-        protected List<string> strings2 = ["list test string 12123123"];
-        protected List<char> charList = ['a', 'b', 'c', 'd'];
-        
-        protected IEnumerable<string> enumerable = ["enumerable string 1"];
-        protected ICollection<char> collection = ['h', 'e', 'l', 'l', 'o'];
-        protected IReadOnlyCollection<string> collection2 = ["enumerable string 2", "enumerable string 4"];
-        // private IDictionary<string, char> dict = new Dictionary<string, char> { { "hello", 'e' }, { "test", 'c' } };
+        //
+        // public string A { get; protected set; } = null;
+        //
+        // protected string B = "test value to see if the deserializer works";
+        //
+        // protected char[] C = ['c', 'd'];
+        //
+        // protected byte[] T = [1, 2, 3];
+        //
+        // protected S[] S = [new S('l', 100)];
+        //
+        // protected S s2 = new('t', 10);
+        //
+        // protected string[] strings = ["test string 1", "test string 2", "test string 3"];
+        //
+        // protected List<string> strings2 = ["list test string 12123123"];
+        // protected List<char> charList = ['a', 'b', 'c', 'd'];
+        //
+        // protected IEnumerable<string> enumerable = ["enumerable string 1"];
+        // protected ICollection<char> collection = ['h', 'e', 'l', 'l', 'o'];
+        // protected IReadOnlyCollection<string> collection2 = ["enumerable string 2", "enumerable string 4"];
+        // // private IDictionary<string, char> dict = new Dictionary<string, char> { { "hello", 'e' }, { "test", 'c' } };
         protected object test = "123, 321, 456";
-        // private Dictionary<string, char> dict =  new() { { "hello", 'e' }, { "test", 'c' } };
+        protected Dictionary<string, char> dict =  new() { { "hello", 'e' }, { "test", 'c' } };
 
         public Test()
         {
-            
+
         }
     }
 

@@ -14,4 +14,7 @@ public static class Formats
         new(SymbolDisplayGlobalNamespaceStyle.Included,
             SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces,
             SymbolDisplayGenericsOptions.IncludeTypeParameters);
+
+    public static readonly SymbolDisplayFormat PropertyFullDescriptorFormat =
+        new(propertyStyle: SymbolDisplayPropertyStyle.ShowReadWriteDescriptor);
 }

@@ -34,4 +34,5 @@ public static class Types
     public const string HashSetGeneric = "global::System.Collections.Generic.HashSet";
     private const string SerializableName = "ISerializable";
     public const string ISerializable = $"global::Serializer.{SerializableName}";
+    public const string NotImplementedException = "global::System.NotImplementedException";
 }

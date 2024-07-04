@@ -81,6 +81,10 @@ public sealed class FileReader : Stream
     {
         ValidateNotDisposed();
         EnsureBufferAllocated(bufferSize);
+        if (position >= length)
+        {
+            return 0;
+        }
 
         int bufferLengthLeft = bufferLength - bufferPos;
         if (span.Length >= buffer.Length)

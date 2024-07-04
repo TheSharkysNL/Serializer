@@ -186,6 +186,17 @@ public readonly struct ExpressionBuilder
         builder.Append(right);
     }
 
+    public void AppendDotExpressionWithCast(ReadOnlySpan<char> left, ReadOnlySpan<char> type, ReadOnlySpan<char> right)
+    {
+        builder.Append("((");
+        builder.Append(type);
+        builder.Append(')');
+        builder.Append(left);
+        builder.Append(')');
+        builder.Append('.');
+        builder.Append(right);
+    }
+    
     public void AppendDotExpression(Action<ExpressionBuilder> left, Action<ExpressionBuilder> right)
     {
         left(this);

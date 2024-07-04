@@ -83,24 +83,21 @@ public class Deserialize // TODO: clean up this whole class :(
         {
             builder.AppendScope(builder =>
             {
-                builder.AppendVariable("sizeOrNullByte",  loopNestingLevel == 0 ? Types.Int32 : "", expressionBuilder =>
-                {
-                    expressionBuilder.AppendMethodCall($"{StreamParameterName}.ReadByte");
-                });
+                GenerateSizeOrNullVariable(builder, loopNestingLevel);
 
                 builder.AppendIf("sizeOrNullByte", Serialize.IsNullByte,
-                    builder => GenerateDeserializationInternal(builder, name, type, fullTypeName, loopNestingLevel),
+                    builder => GenerateDeserializationInternal(builder, name, type, fullTypeName, loopNestingLevel, true),
                     true);
             });
         }
         else
         {
-            GenerateDeserializationInternal(builder, name, type, fullTypeName, loopNestingLevel);
+            GenerateDeserializationInternal(builder, name, type, fullTypeName, loopNestingLevel, false);
         }
     }
 
     private void GenerateDeserializationInternal(CodeBuilder builder, string name, ITypeSymbol type,
-        ReadOnlyMemory<char> fullTypeName, int loopNestingLevel)
+        ReadOnlyMemory<char> fullTypeName, int loopNestingLevel, bool nullable)
     {
         INamedTypeSymbol? collectionType;
         if (type.IsOrInheritsFrom(Types.ISerializable) is not null)
@@ -112,7 +109,7 @@ public class Deserialize // TODO: clean up this whole class :(
         }
         else if (fullTypeName.Span.SequenceEqual(Types.String))
         {
-            GenerateString(builder, name);
+            GenerateString(builder, name, loopNestingLevel);
         }
         else if (type.IsUnmanagedType)
         {
@@ -126,7 +123,7 @@ public class Deserialize // TODO: clean up this whole class :(
         {
             Debug.Assert(collectionType.TypeArguments.Length > 0); // should be a ICollection<T> type here so must have 1 argument
             ITypeSymbol generic = collectionType.TypeArguments[0];
-            GenerateCollection(builder, name, type, generic, loopNestingLevel);
+            GenerateCollection(builder, name, type, generic, loopNestingLevel, nullable);
         }
         else if (type.IsAbstract || type.TypeKind == TypeKind.Interface || type.FullNamesMatch(Types.Object) || type.TypeKind == TypeKind.Dynamic)
         {
@@ -186,14 +183,14 @@ public class Deserialize // TODO: clean up this whole class :(
     }
 
     private void GenerateCollection(CodeBuilder builder, string name, ITypeSymbol type, ITypeSymbol generic,
-        int loopNestingLevel)
+        int loopNestingLevel, bool nullable)
     {
         builder.AppendScope(builder =>
         {
             string genericTypeName = generic.ToDisplayString(Formats.GlobalFullGenericNamespaceFormat);
         
             string countVarName = "count" + (char)(loopNestingLevel + 'A');
-            GenerateCountVariable(builder, countVarName);
+            GenerateCountVariable(builder, countVarName, loopNestingLevel, nullable);
 
             string fullGenericType = type.ToDisplayString(Formats.GlobalFullGenericNamespaceFormat);
             GenerateCollectionInitialization(builder, name, type, fullGenericType, countVarName);
@@ -306,7 +303,7 @@ public class Deserialize // TODO: clean up this whole class :(
             string elementTypeName = elementType.ToDisplayString(Formats.GlobalFullNamespaceFormat);
 
             string countVarName = "count" + (char)(loopNestingLevel + 'A');
-            GenerateCountVariable(builder, countVarName);
+            GenerateCountVariable(builder, countVarName, loopNestingLevel, true);
 
             string tempArrayName = "tempArray" + (char)(loopNestingLevel + 'A');
             builder.AppendVariable(tempArrayName, elementTypeName + "[]", expressionBuilder =>
@@ -341,8 +338,13 @@ public class Deserialize // TODO: clean up this whole class :(
         });
     }
 
-    private static void GenerateCountVariable(CodeBuilder builder, string varName)
+    private static void GenerateCountVariable(CodeBuilder builder, string varName, int loopNestingLevel, bool nullable)
     {
+        if (!nullable)
+        {
+            GenerateSizeOrNullVariable(builder, loopNestingLevel);
+        }
+        
         builder.GetExpressionBuilder().AppendMethodCall($"{Types.Unsafe}.SkipInit", (expressionBuilder, _) =>
         {
             expressionBuilder.AppendOut(varName, Types.Int32);
@@ -373,11 +375,15 @@ public class Deserialize // TODO: clean up this whole class :(
         }, 1);
     }
 
-    private static void GenerateString(CodeBuilder builder, string name)
+    private static void GenerateSizeOrNullVariable(CodeBuilder builder, int loopNestingLevel) =>
+        builder.AppendVariable("sizeOrNullByte", loopNestingLevel == 0 ? Types.Int32 : "",
+            expressionBuilder => expressionBuilder.AppendMethodCall($"{StreamParameterName}.ReadByte"));
+
+    private static void GenerateString(CodeBuilder builder, string name, int loopNestingLevel)
     {
         builder.AppendScope(builder =>
             {
-                GenerateCountVariable(builder, "count");
+                GenerateCountVariable(builder, "count", loopNestingLevel, true);
                 
                 builder.GetExpressionBuilder().AppendAssignment(name, expressionBuilder =>
                 {

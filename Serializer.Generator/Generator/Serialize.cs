@@ -342,25 +342,28 @@ public static class Serialize
         {
             builder.AppendElse(builder => GenerateSingleCountStorageInternal(builder, varName, byteSize));
         }
-    } 
+    }
+
+    private static void GenerateCountGetter(ExpressionBuilder builder, char[] name, string collectionType)
+    {
+        if (collectionType == "Length")
+        {
+            builder.AppendDotExpression(name, "Length");
+        }
+        else
+        {
+            builder.AppendDotExpressionWithCast(name,
+                collectionType, "Count");
+        }
+    }
     
     private static void GenerateCountStorage(CodeBuilder builder, char[] name, string collectionType)
     {
-        const string countVarName = "count";
+        const string countVarName = "countVar";
         builder.AppendScope(builder =>
         {
-            builder.AppendVariable(countVarName, Types.Int32, builder =>
-            {
-                if (collectionType == "Length")
-                {
-                    builder.AppendDotExpression(name, "Length");
-                }
-                else
-                {
-                    builder.AppendDotExpressionWithCast(name,
-                        collectionType, "Count");
-                }
-            });
+            builder.AppendVariable(countVarName, Types.Int32,
+                expressionBuilder => GenerateCountGetter(expressionBuilder, name, collectionType));
             
             GenerateSingleCountStorage(builder, countVarName, ByteMax, "1");
             GenerateSingleCountStorage(builder, countVarName, UInt16Max, "2", "else if");
@@ -486,37 +489,11 @@ public static class Serialize
         ReadOnlySpan<char> loopCharacterSpan =
             MemoryMarshal.CreateReadOnlySpan(ref loopCharacter, 1);
         
-        const string count = "Count";
-        Span<char> loopVariable = stackalloc char[name.Length + collectionType.Length + 5 + count.Length];
-        GetLoopVariableName(loopVariable, name, collectionType);
-        
         char[] indexedName = GetIndexedName(name, loopCharacter);
         
-        builder.AppendFor(loopCharacterSpan, loopVariable, builder => 
-            GenerateSerialization(builder, indexedName, innerType, fullInnerTypeName, loopNestingLevel + 1));
-    }
-
-    private static void GetLoopVariableName(Span<char> loopVariable, ReadOnlySpan<char> name, string collectionType)
-    {
-        const string count = "Count";
-        
-        loopVariable[0] = '(';
-        loopVariable[1] = '(';
-        
-        collectionType.AsSpan().CopyTo(loopVariable[2..]);
-        int index = 2 + collectionType.Length;
-        
-        loopVariable[index] = ')';
-        index++;
-        
-        name.CopyTo(loopVariable[index..]);
-        index += name.Length;
-        
-        loopVariable[index] = ')';
-        loopVariable[index + 1] = '.';
-        index += 2;
-        
-        count.AsSpan().CopyTo(loopVariable[index..]);
+        builder.AppendFor(loopCharacterSpan, 
+            expressionBuilder => GenerateCountGetter(expressionBuilder, name, collectionType), 
+            builder => GenerateSerialization(builder, indexedName, innerType, fullInnerTypeName, loopNestingLevel + 1));
     }
     
     private static char GetLoopCharacter(int loopNestingLevel) =>

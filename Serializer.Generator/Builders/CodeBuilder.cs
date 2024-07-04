@@ -670,6 +670,21 @@ public readonly struct CodeBuilder
 
         AppendScope(callback);
     }
+    
+    public void AppendFor(ReadOnlySpan<char> variableName, Action<ExpressionBuilder> loopVariable, Action<CodeBuilder> callback)
+    {
+        builder.Append("for (int ");
+        builder.Append(variableName);
+        builder.Append(" = 0; ");
+        builder.Append(variableName);
+        builder.Append(" < ");
+        loopVariable(GetExpressionBuilder());
+        builder.Append("; ");
+        builder.Append(variableName);
+        builder.Append("++)");
+
+        AppendScope(callback);
+    }
 
     public void AppendForeach(string variableName, string loopVariableName, string type,
         Action<CodeBuilder> callback) =>

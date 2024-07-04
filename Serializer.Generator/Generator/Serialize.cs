@@ -168,13 +168,13 @@ public static class Serialize
         }
         else if ((collectionType = IsGenericListType(type)) is not null) // is IList<T> or IReadOnlyList<T>
         {
-            GenerateList(builder, name, collectionType, fullTypeName, loopNestingLevel);
+            GenerateList(builder, name, collectionType, fullTypeName, loopNestingLevel, collectionType.ToDisplayString(Formats.GlobalFullGenericNamespaceFormat));
         }
         else if
             ((collectionType =
                 IsGenericICollectionType(type)) is not null) // is ICollection<T> or IReadOnlyCollection<T>
         {
-            GenerateCollection(builder, name, collectionType, loopNestingLevel);
+            GenerateCollection(builder, name, collectionType, loopNestingLevel, collectionType.ToDisplayString(Formats.GlobalFullGenericNamespaceFormat));
         }
         else if ((collectionType = IsGenericIEnumerableType(type)) is not null) // is IEnumerable<T>
         {
@@ -280,14 +280,14 @@ public static class Serialize
         });
     }
     
-    private static void GenerateCollection(CodeBuilder builder, char[] name, ITypeSymbol type, int loopNestingLevel)
+    private static void GenerateCollection(CodeBuilder builder, char[] name, ITypeSymbol type, int loopNestingLevel, string collectionType)
     {
         Debug.Assert(type is INamedTypeSymbol { TypeArguments.Length: 1 });
         ITypeSymbol generic = ((INamedTypeSymbol)type).TypeArguments[0];
             
         string newFullTypeName = generic.ToDisplayString(Formats.GlobalFullGenericNamespaceFormat);
 
-        GenerateCountStorage(builder, name, "Count");
+        GenerateCountStorage(builder, name, collectionType);
             
         char loopCharacter = GetLoopCharacter(loopNestingLevel);
         char[] loopCharacterName = [loopCharacter];
@@ -344,23 +344,32 @@ public static class Serialize
         }
     } 
     
-    private static void GenerateCountStorage(CodeBuilder builder, char[] name, string lengthName)
+    private static void GenerateCountStorage(CodeBuilder builder, char[] name, string collectionType)
     {
+        const string countVarName = "count";
         builder.AppendScope(builder =>
         {
-            builder.AppendVariable(lengthName, Types.Int32, builder =>
+            builder.AppendVariable(countVarName, Types.Int32, builder =>
             {
-                builder.AppendDotExpression(name, lengthName);
+                if (collectionType == "Length")
+                {
+                    builder.AppendDotExpression(name, "Length");
+                }
+                else
+                {
+                    builder.AppendDotExpressionWithCast(name,
+                        collectionType, "Count");
+                }
             });
             
-            GenerateSingleCountStorage(builder, lengthName, ByteMax, "1");
-            GenerateSingleCountStorage(builder, lengthName, UInt16Max, "2", "else if");
-            GenerateSingleCountStorage(builder, lengthName, UInt24Max, "3", "else if");
-            GenerateSingleCountStorage(builder, lengthName, null, "4");
+            GenerateSingleCountStorage(builder, countVarName, ByteMax, "1");
+            GenerateSingleCountStorage(builder, countVarName, UInt16Max, "2", "else if");
+            GenerateSingleCountStorage(builder, countVarName, UInt24Max, "3", "else if");
+            GenerateSingleCountStorage(builder, countVarName, null, "4");
         });
     }
 
-    private static void GenerateList(CodeBuilder builder, char[] name, ITypeSymbol type, ReadOnlyMemory<char> fullTypeName, int loopNestingLevel)
+    private static void GenerateList(CodeBuilder builder, char[] name, ITypeSymbol type, ReadOnlyMemory<char> fullTypeName, int loopNestingLevel, string collectionType)
     {
         Debug.Assert(type is INamedTypeSymbol { TypeArguments.Length: 1 });
         ITypeSymbol generic = ((INamedTypeSymbol)type).TypeArguments[0];
@@ -369,7 +378,7 @@ public static class Serialize
 
         if (generic.IsUnmanagedType && fullTypeName.Span.SequenceEqual(Types.ListGeneric))
         {
-            GenerateCountStorage(builder, name, "Count");
+            GenerateCountStorage(builder, name, collectionType);
             GenerateSpanConversionWrite(builder, name, Types.CollectionsMarshal);
                 
             // builder.Append($"{OffsetParameterName} += ");
@@ -377,7 +386,7 @@ public static class Serialize
             return;
         }
 
-        GenerateIndexableType(builder, name, generic, newFullTypeName.AsMemory(), loopNestingLevel, "Count");
+        GenerateIndexableType(builder, name, generic, newFullTypeName.AsMemory(), loopNestingLevel, collectionType);
     }
     
     private static void GenerateReadUnmanagedType(CodeBuilder builder, char[] name,
@@ -465,27 +474,49 @@ public static class Serialize
             return;
         }
 
-        GenerateIndexableType(builder, name, elementType, newFullTypeName, loopNestingLevel);
+        GenerateIndexableType(builder, name, elementType, newFullTypeName, loopNestingLevel, "Length");
     }
 
     private static void GenerateIndexableType(CodeBuilder builder, char[] name, ITypeSymbol innerType,
-        ReadOnlyMemory<char> fullInnerTypeName, int loopNestingLevel, string lengthMember = "Length")
+        ReadOnlyMemory<char> fullInnerTypeName, int loopNestingLevel, string collectionType)
     {
-        GenerateCountStorage(builder, name, lengthMember);
+        GenerateCountStorage(builder, name, collectionType);
         
         char loopCharacter = GetLoopCharacter(loopNestingLevel);
         ReadOnlySpan<char> loopCharacterSpan =
             MemoryMarshal.CreateReadOnlySpan(ref loopCharacter, 1);
         
-        Span<char> loopVariable = stackalloc char[name.Length + lengthMember.Length + 1];
-        name.AsSpan().CopyTo(loopVariable);
-        loopVariable[name.Length] = '.';
-        lengthMember.AsSpan().CopyTo(loopVariable[(name.Length + 1)..]);
+        const string count = "Count";
+        Span<char> loopVariable = stackalloc char[name.Length + collectionType.Length + 5 + count.Length];
+        GetLoopVariableName(loopVariable, name, collectionType);
         
         char[] indexedName = GetIndexedName(name, loopCharacter);
         
         builder.AppendFor(loopCharacterSpan, loopVariable, builder => 
             GenerateSerialization(builder, indexedName, innerType, fullInnerTypeName, loopNestingLevel + 1));
+    }
+
+    private static void GetLoopVariableName(Span<char> loopVariable, ReadOnlySpan<char> name, string collectionType)
+    {
+        const string count = "Count";
+        
+        loopVariable[0] = '(';
+        loopVariable[1] = '(';
+        
+        collectionType.AsSpan().CopyTo(loopVariable[2..]);
+        int index = 2 + collectionType.Length;
+        
+        loopVariable[index] = ')';
+        index++;
+        
+        name.CopyTo(loopVariable[index..]);
+        index += name.Length;
+        
+        loopVariable[index] = ')';
+        loopVariable[index + 1] = '.';
+        index += 2;
+        
+        count.AsSpan().CopyTo(loopVariable[index..]);
     }
     
     private static char GetLoopCharacter(int loopNestingLevel) =>

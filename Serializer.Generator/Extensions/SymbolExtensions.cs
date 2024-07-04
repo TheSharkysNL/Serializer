@@ -90,6 +90,28 @@ public static class SymbolExtensions
 
         return null;
     }
+    
+    public static IMethodSymbol? FindMethod(this ImmutableArray<ISymbol> symbols, string name, ITypeSymbol? returnType, ReadOnlySpan<string> parameterTypes)
+    {
+        for (int i = 0; i < symbols.Length; i++)
+        {
+            ISymbol symbol = symbols[i];
+            if (symbol.Kind != SymbolKind.Method)
+            {
+                continue;
+            }
+
+            IMethodSymbol method = (IMethodSymbol)symbol;
+            if (method.Name == name &&
+                SymbolEqualityComparer.Default.Equals(method.ReturnType, returnType) &&
+                HasParameterTypes(method, parameterTypes))
+            {
+                return method;
+            }
+        }
+
+        return null;
+    }
 
     private static bool HasParameterTypes(IMethodSymbol method, ReadOnlySpan<string> types)
     {

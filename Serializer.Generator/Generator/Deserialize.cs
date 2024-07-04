@@ -119,11 +119,13 @@ public class Deserialize // TODO: clean up this whole class :(
         {
             GenerateArray(builder, name, type, loopNestingLevel);
         } 
-        else if ((collectionType = type.InheritsFrom(Types.ICollectionGeneric)) is not null)
+        else if (((collectionType = type.InheritsFrom(Types.IReadOnlyCollectionGeneric)) is not null && 
+                  type.GetMembers().FindMethod("Add", type, [collectionType.TypeArguments[0].ToDisplayString(Formats.GlobalFullGenericNamespaceFormat)]) is not null) || 
+                 (collectionType = type.InheritsFrom(Types.ICollectionGeneric)) is not null)
         {
             Debug.Assert(collectionType.TypeArguments.Length > 0); // should be a ICollection<T> type here so must have 1 argument
             ITypeSymbol generic = collectionType.TypeArguments[0];
-            GenerateCollection(builder, name, type, generic, loopNestingLevel, nullable);
+            GenerateCollection(builder, name, type, generic, loopNestingLevel, nullable, collectionType.Name.SequenceEqual("IReadOnlyCollection"));
         }
         else if (type.IsAbstract || type.TypeKind == TypeKind.Interface || type.FullNamesMatch(Types.Object) || type.TypeKind == TypeKind.Dynamic)
         {
@@ -139,14 +141,14 @@ public class Deserialize // TODO: clean up this whole class :(
             foreach (ISymbol member in serializableMembers)
             {
                 ITypeSymbol innerType = member.GetMemberType();
-                string fullGenericTypeName = innerType.ToDisplayString(Formats.GlobalFullGenericNamespaceFormat);
+                string fullGenericInnerTypeName = innerType.ToDisplayString(Formats.GlobalFullGenericNamespaceFormat);
                 
-                int genericStart = fullGenericTypeName.IndexOf('<');
-                int endIndex = genericStart == -1 ? fullGenericTypeName.Length : genericStart;
-                ReadOnlyMemory<char> fullInnerTypeName = fullGenericTypeName.AsMemory(0, endIndex);
+                int genericStart = fullGenericInnerTypeName.IndexOf('<');
+                int endIndex = genericStart == -1 ? fullGenericInnerTypeName.Length : genericStart;
+                ReadOnlyMemory<char> fullInnerTypeName = fullGenericInnerTypeName.AsMemory(0, endIndex);
 
                 string varName = type.Name + member.Name;
-                builder.AppendVariable(varName, fullGenericTypeName, "default");
+                builder.AppendVariable(varName, fullGenericInnerTypeName, "default");
 
                 GenerateDeserialization(builder, varName, innerType, fullInnerTypeName, loopNestingLevel + 1);
             }
@@ -160,10 +162,11 @@ public class Deserialize // TODO: clean up this whole class :(
                         argumentBuilder.AppendValue(type.Name + serializableMembers[index].Name),
                     serializableMembers.Length);
             });
-            
+
+            string fullGenericTypeName = type.ToDisplayString(Formats.GlobalFullGenericNamespaceFormat);
             builder.GetExpressionBuilder().AppendAssignment(name, expressionBuilder =>
             {
-                expressionBuilder.AppendMethodCall($"{Types.Unsafe}.As", $"{generatedTypeName}, {fullTypeName}",
+                expressionBuilder.AppendMethodCall($"{Types.Unsafe}.As", $"{generatedTypeName}, {fullGenericTypeName}",
                     (expressionBuilder, _) =>
                     {
                         expressionBuilder.AppendRef(expressionBuilder =>
@@ -176,14 +179,14 @@ public class Deserialize // TODO: clean up this whole class :(
             if (type.IsReferenceType)
             {
                 builder.GetExpressionBuilder()
-                .AppendMethodCall($"{Types.DeserializeHelpers}<{fullTypeName}>.SetAsVirtualTable",
+                .AppendMethodCall($"{Types.DeserializeHelpers}<{fullGenericTypeName}>.SetAsVirtualTable",
                     (expressionBuilder, _) => expressionBuilder.AppendValue(name), 1);
             }
         }
     }
 
     private void GenerateCollection(CodeBuilder builder, string name, ITypeSymbol type, ITypeSymbol generic,
-        int loopNestingLevel, bool nullable)
+        int loopNestingLevel, bool nullable, bool @readonly)
     {
         builder.AppendScope(builder =>
         {
@@ -193,7 +196,7 @@ public class Deserialize // TODO: clean up this whole class :(
             GenerateCountVariable(builder, countVarName, loopNestingLevel, nullable);
 
             string fullGenericType = type.ToDisplayString(Formats.GlobalFullGenericNamespaceFormat);
-            GenerateCollectionInitialization(builder, name, type, fullGenericType, countVarName);
+            GenerateCollectionInitialization(builder, name, type, fullGenericType, countVarName, genericTypeName);
 
             if (generic.IsUnmanagedType && fullGenericType.StartsWith(Types.ListGeneric))
             {
@@ -223,14 +226,23 @@ public class Deserialize // TODO: clean up this whole class :(
             {
                 builder.AppendVariable(varName, genericTypeName, "default");
                 GenerateDeserialization(builder, varName, generic, genericTypeName.AsMemory(), loopNestingLevel + 1);
-                builder.GetExpressionBuilder().AppendMethodCall($"(({Types.ICollectionGeneric}<{genericTypeName}>){name}).Add",
-                    (expressionBuilder, _) => expressionBuilder.AppendValue(varName), 1);
+                if (!@readonly)
+                {
+                    builder.GetExpressionBuilder().AppendMethodCall($"(({Types.ICollectionGeneric}<{genericTypeName}>){name}).Add",
+                        (expressionBuilder, _) => expressionBuilder.AppendValue(varName), 1);
+                }
+                else
+                {
+                    builder.GetExpressionBuilder().AppendAssignment(name, expressionBuilder =>
+                        expressionBuilder.AppendMethodCall($"{name}.Add",
+                            (expressionBuilder, _) => expressionBuilder.AppendValue(varName), 1));
+                }
             });
         });
     }
 
     private static void GenerateCollectionInitialization(CodeBuilder builder, string name, ITypeSymbol type,
-        string fullTypeName, string countVarName)
+        string fullTypeName, string countVarName, string genericTypeName)
     {
         ImmutableArray<ISymbol> members = type.GetMembers();
         bool hasCapacityConstructor = true; 
@@ -265,8 +277,17 @@ public class Deserialize // TODO: clean up this whole class :(
                     $"cannot initialize {fullTypeName}, no empty constructor found");
             }
 
-            builder.GetExpressionBuilder().AppendAssignment(name,
-                expressionBuilder => expressionBuilder.AppendNewObject(fullTypeName));
+            if (fullTypeName.StartsWith(Types.ImmutableArray))
+            {
+                builder.GetExpressionBuilder().AppendAssignment(name,
+                    expressionBuilder => expressionBuilder.AppendMethodCall($"{Types.ImmutableArray}.Create",
+                        (expressionBuilder, _) => expressionBuilder.AppendNewObject($"{Types.ReadOnlySpan}", genericTypeName),1));
+            }
+            else
+            {
+                builder.GetExpressionBuilder().AppendAssignment(name,
+                    expressionBuilder => expressionBuilder.AppendNewObject(fullTypeName));
+            }
         }
     }
 

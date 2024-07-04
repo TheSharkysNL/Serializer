@@ -140,6 +140,13 @@ public readonly struct ExpressionBuilder
         AppendMethodCall(@object, generic, parameters, count);
         
     }
+    
+    public void AppendNewObject(ReadOnlySpan<char> @object, ReadOnlySpan<char> generic)
+    {
+        builder.Append("new ");
+        
+        AppendMethodCall(@object, generic, (_, _) => {}, 0);
+    }
 
     public void AppendValue(string value) =>
         AppendValue(value.AsSpan());

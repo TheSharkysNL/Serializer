@@ -30,9 +30,7 @@ public static class Types
     public const string Span = "global::System.Span";
     public const string IDictionaryGeneric = "global::System.Collections.Generic.IDictionary";
     public const string ISetGeneric = "global::System.Collections.Generic.ISet";
-    public const string DictionaryGeneric = "global::System.Collections.Generic.Dictionary";
-    public const string HashSetGeneric = "global::System.Collections.Generic.HashSet";
     private const string SerializableName = "ISerializable";
     public const string ISerializable = $"global::Serializer.{SerializableName}";
-    public const string NotImplementedException = "global::System.NotImplementedException";
+    public const string ImmutableArray = "global::System.Collections.Immutable.ImmutableArray";
 }

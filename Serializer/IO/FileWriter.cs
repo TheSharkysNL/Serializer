@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using Microsoft.Win32.SafeHandles;
@@ -11,14 +12,13 @@ public sealed class FileWriter : Stream
 
     private byte[]? buffer;
     private int bufferPos;
-    private int bufferLength;
     private readonly int bufferSize;
     
     public bool IsDisposed => handle.IsClosed;
     public override bool CanRead => false;
     public override bool CanSeek => true;
     public override bool CanWrite => true;
-    public override long Length => RandomAccess.GetLength(handle);
+    public override long Length => RandomAccess.GetLength(handle) + bufferPos;
 
     public override long Position
     {
@@ -62,12 +62,13 @@ public sealed class FileWriter : Stream
     {
         ValidateNotDisposed();
 
-        if (buffer is null || bufferLength == 0)
+        if (buffer is null || bufferPos == 0)
         {
             return;
         }
 
         RandomAccess.Write(handle, buffer.AsSpan(0, bufferPos), position);
+        position += bufferPos;
         
         ResetBuffer();
     }
@@ -109,19 +110,43 @@ public sealed class FileWriter : Stream
         ValidateNotDisposed();
         EnsureBufferAllocated(bufferSize);
 
-        int bufferLengthLeft = bufferLength - bufferPos;
-        if (span.Length >= bufferLengthLeft)
+        if (span.Length == 0)
         {
+            return;
+        } 
+
+        if (bufferPos > 0)
+        {
+            int numBytes = buffer.Length - bufferPos;   // space left in buffer
+            if (numBytes > 0)
+            {
+                if (numBytes >= span.Length)
+                {
+                    span.CopyTo(buffer!.AsSpan(bufferPos));
+                    bufferPos += span.Length;
+                    return;
+                }
+                span[..numBytes].CopyTo(buffer!.AsSpan(bufferPos));
+                bufferPos += numBytes;
+                span = span[numBytes..];
+            }
+
             Flush();
-            
-            RandomAccess.Write(handle, span, position);
-            position += span.Length;
         }
-        else
+        
+        if (span.Length >= buffer.Length)
         {
-            span.CopyTo(buffer.AsSpan(bufferPos));
-            bufferPos += span.Length;
+            RandomAccess.Write(handle, span, position);
         }
+        
+        EnsureBufferAllocated(bufferSize);
+        span.CopyTo(buffer.AsSpan(bufferPos));
+        bufferPos = span.Length;
+    }
+
+    public override void WriteByte(byte value)
+    {
+        Write(new ReadOnlySpan<byte>(in value));
     }
 
     [MemberNotNull(nameof(buffer))]
@@ -130,7 +155,6 @@ public sealed class FileWriter : Stream
         if (buffer is null)
         {
             AllocateBuffer(size);
-            bufferLength = size;
         }
     }
 

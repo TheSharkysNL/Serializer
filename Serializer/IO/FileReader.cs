@@ -81,6 +81,10 @@ public sealed class FileReader : Stream
     {
         ValidateNotDisposed();
         EnsureBufferAllocated(bufferSize);
+        if (position >= length)
+        {
+            return 0;
+        }
 
         int bufferLengthLeft = bufferLength - bufferPos;
         if (span.Length >= buffer.Length)
@@ -127,6 +131,15 @@ public sealed class FileReader : Stream
             position += copiedAmount;
             return copiedAmount;
         }
+    }
+
+    public override int ReadByte()
+    {
+        Unsafe.SkipInit(out byte b);
+
+        Span<byte> byteSpan = new(ref b);
+        int readBytes = Read(byteSpan);
+        return readBytes == 0 ? -1 : b;
     }
 
     public override long Seek(long offset, SeekOrigin origin)

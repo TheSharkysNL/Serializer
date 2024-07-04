@@ -31,6 +31,10 @@ public readonly struct CodeFormatter(string code) : IFormattable
             }
             
             ReadOnlySpan<char> span = code.AsSpan(previousIndex, index - previousIndex);
+            if (span.Contains("for", StringComparison.Ordinal) && character != '{')
+            {
+                continue;
+            }
             builder.Append(span.Trim());
             if (character != ';')
             {
@@ -39,7 +43,8 @@ public readonly struct CodeFormatter(string code) : IFormattable
             }
             builder.Append(character);
 
-            if (NextNonWhitespaceCharacter(code, index + 1) != '}')
+            char nextCharacter = NextNonWhitespaceCharacter(code, index + 1);
+            if (nextCharacter is not ('}' or '{'))
             {
                 builder.Append('\n');
             }

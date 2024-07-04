@@ -10,24 +10,43 @@ public static class TypeExtensions
 {
     private static readonly char[] typeSeparators = [ '.', ':' ]; // global::namespace.class
     
-    public static InheritingTypes InheritsFrom(this TypeDeclarationSyntax type, string otherType, Compilation compilation,
+    public static INamedTypeSymbol? InheritsFrom(this TypeDeclarationSyntax type, string otherType, Compilation compilation,
         CancellationToken token = default)
     {
         SemanticModel model = compilation.GetSemanticModel(type.SyntaxTree);
-
-        ReadOnlySpan<char> shortName = GetShortName(otherType);
-
+        
         INamedTypeSymbol? typeSymbol = model.GetDeclaredSymbol(type, token);
         if (typeSymbol is null)
         {
-            return InheritingTypes.None;
+            return null;
         }
 
+        return typeSymbol.InheritsFrom(otherType, token);
+    }
+
+    public static ITypeSymbol? IsOrInheritsFrom(this ITypeSymbol typeSymbol, string otherType,
+        CancellationToken token = default)
+    {
+        ReadOnlySpan<char> shortName = GetShortName(otherType);
+        if (NamesMatch(typeSymbol, shortName, otherType))
+        {
+            return typeSymbol;
+        }
+
+        return InheritsFrom(typeSymbol, otherType, token);
+    }
+
+    public static INamedTypeSymbol? InheritsFrom(this ITypeSymbol typeSymbol, string otherType,
+        CancellationToken token = default)
+    {
+        ReadOnlySpan<char> shortName = GetShortName(otherType);
+
+        INamedTypeSymbol? type;
         return token.IsCancellationRequested switch
         {
-            false when InterfacesInheritFrom(typeSymbol, otherType, shortName) => InheritingTypes.Interface,
-            false when BaseTypeInheritsFrom(typeSymbol, otherType, shortName) => InheritingTypes.Class,
-            _ => InheritingTypes.None
+            false when (type = InterfacesInheritFrom(typeSymbol, otherType, shortName)) is not null => type,
+            false when (type = BaseTypeInheritsFrom(typeSymbol, otherType, shortName)) is not null => type,
+            _ => null
         };
     }
 
@@ -49,29 +68,30 @@ public static class TypeExtensions
         return identifier.AsSpan(startIndex, length);
     }
 
-    private static bool BaseTypeInheritsFrom(INamedTypeSymbol symbol, string otherType, ReadOnlySpan<char> shortName)
+    private static INamedTypeSymbol? BaseTypeInheritsFrom(ITypeSymbol symbol, string otherType, ReadOnlySpan<char> shortName)
     {
         while (symbol.BaseType is not null)
         {
             INamedTypeSymbol baseType = symbol.BaseType;
-            if (baseType.Name.AsSpan().SequenceEqual(shortName) &&
-                FullNamesMatch(baseType, otherType))
+            if (NamesMatch(symbol, shortName, otherType))
             {
-                return true;
+                return baseType;
             }
 
-            if (InterfacesInheritFrom(baseType, otherType, shortName))
-            {
-                return true;
-            }
+            // this is not needed as InterfacesInheritFrom already finds all the interfaces even of base types
+            // INamedTypeSymbol? @interface = InterfacesInheritFrom(baseType, otherType, shortName);
+            // if (@interface is not null)
+            // {
+            //     return @interface;
+            // }
 
             symbol = baseType;
         }
 
-        return false;
+        return null;
     }
 
-    private static bool InterfacesInheritFrom(INamedTypeSymbol symbol, string otherType, ReadOnlySpan<char> shortName)
+    private static INamedTypeSymbol? InterfacesInheritFrom(ITypeSymbol symbol, string otherType, ReadOnlySpan<char> shortName)
     {
         ImmutableArray<INamedTypeSymbol> interfaces = symbol.AllInterfaces;
 
@@ -79,19 +99,26 @@ public static class TypeExtensions
         {
             INamedTypeSymbol @interface = interfaces[i];
 
-            if (@interface.Name.AsSpan().SequenceEqual(shortName) &&
-                FullNamesMatch(@interface, otherType))
+            if (NamesMatch(@interface, shortName, otherType))
             {
-                return true;
+                return @interface;
             }
         }
 
-        return false;
+        return null;
     }
 
-    public static bool FullNamesMatch(this ISymbol symbol, string otherType)
-    {
-        return symbol.ToDisplayString(Formats.GlobalFullNamespaceFormat).AsSpan()
+    private static bool NamesMatch(ITypeSymbol symbol, ReadOnlySpan<char> shortName, string otherType) =>
+        symbol.Name.AsSpan().SequenceEqual(shortName) &&
+        FullNamesMatch(symbol, otherType);
+
+    public static bool FullNamesMatch(this ISymbol symbol, string otherType) => 
+        symbol.ToDisplayString(Formats.GlobalFullNamespaceFormat).AsSpan()
             .Contains(otherType.AsSpan(), StringComparison.Ordinal);
-    }
+
+    public static bool IsNullableType(this ITypeSymbol type) =>
+        IsNullableType(type, type.ToDisplayString(Formats.GlobalFullNamespaceFormat));
+    
+    public static bool IsNullableType(this ITypeSymbol type, ReadOnlySpan<char> fullTypeName) =>
+        !type.IsValueType || fullTypeName.SequenceEqual(Types.Nullable);
 }

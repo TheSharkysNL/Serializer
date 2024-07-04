@@ -75,6 +75,8 @@ public class Generator : ISourceGenerator
             
                         Serialize.GenerateForSymbol(codeBuilder, symbol);
             
+                        codeBuilder.GetExpressionBuilder().AppendMethodCall($"{StreamParameterName}.Flush");
+                        
                         codeBuilder.AppendReturn(expressionBuilder =>
                         {
                             expressionBuilder.AppendBinaryExpression(expressionBuilder =>

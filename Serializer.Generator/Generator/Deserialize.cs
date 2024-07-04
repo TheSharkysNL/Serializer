@@ -12,7 +12,7 @@ public class Deserialize // TODO: clean up this whole class :(
 {
     private const string StreamParameterName = Generator.StreamParameterName;
 
-    private List<ITypeSymbol> typesToGenerate = new(8);
+    private HashSet<ITypeSymbol> typesToGenerate = new(8, SymbolEqualityComparer.Default);
 
     public Deserialize()
     {
@@ -236,7 +236,20 @@ public class Deserialize // TODO: clean up this whole class :(
         string fullTypeName, string countVarName)
     {
         ImmutableArray<ISymbol> members = type.GetMembers();
-        bool hasCapacityConstructor = members.FindConstructor([Types.Int32]) is not null;;
+        bool hasCapacityConstructor = true; 
+        if (fullTypeName.StartsWith(Types.IDictionaryGeneric)) // a bad way of doing this but keeping it for now
+        {
+            fullTypeName = fullTypeName.Remove(fullTypeName.IndexOf('I'), 1);
+        }
+        else if (fullTypeName.StartsWith(Types.ISetGeneric))
+        {
+            int iIndex = fullTypeName.IndexOf('I');
+            fullTypeName = fullTypeName.Remove(iIndex, 1).Insert(iIndex, "Hash");
+        }
+        else 
+        {
+            hasCapacityConstructor = members.FindConstructor([Types.Int32]) is not null;
+        }
         
         if (hasCapacityConstructor)
         {
@@ -433,9 +446,8 @@ public class Deserialize // TODO: clean up this whole class :(
 
     private void GenerateTypesList(CodeBuilder builder)
     {
-        for (int i = 0; i < typesToGenerate.Count; i++)
+        foreach (ITypeSymbol type in typesToGenerate)
         {
-            ITypeSymbol type = typesToGenerate[i];
             GenerateType(builder, type);
         }
     }

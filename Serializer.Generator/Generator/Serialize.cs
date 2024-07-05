@@ -49,11 +49,11 @@ public static class Serialize
         {
             ITypeSymbol containingType = member.ContainingType;
             
-            builder.AppendVariableCast(variableName, variableType.ToDisplayString(Formats.GlobalFullNamespaceFormat),
+            builder.AppendVariableCast(variableName, variableType.ToFullDisplayString(),
                 expressionBuilder =>
                 {
                     expressionBuilder.AppendDotExpression(
-                        (left) => left.AppendTypeof(containingType.ToDisplayString(Formats.GlobalFullGenericNamespaceFormat)),
+                        (left) => left.AppendTypeof(containingType.ToFullDisplayString()),
                         (right) =>
                         {
                             right.AppendDotExpression(left =>
@@ -95,7 +95,7 @@ public static class Serialize
 
         memberName.AsSpan().CopyTo(memberNameBuffer.AsSpan(namePrefix.Length + (namePrefix.IsEmpty ? 0 : 1)));
         
-        GenerateSerialization(builder, memberNameBuffer, type, type.ToDisplayString(Formats.GlobalFullNamespaceFormat).AsMemory());
+        GenerateSerialization(builder, memberNameBuffer, type, type.ToFullDisplayString().AsMemory());
     }
     
     private static void GenerateSerialization(CodeBuilder builder, char[] name, ITypeSymbol type, ReadOnlyMemory<char> fullTypeName, int loopNestingLevel = 0)
@@ -168,13 +168,13 @@ public static class Serialize
         }
         else if ((collectionType = IsGenericListType(type)) is not null) // is IList<T> or IReadOnlyList<T>
         {
-            GenerateList(builder, name, collectionType, fullTypeName, loopNestingLevel, collectionType.ToDisplayString(Formats.GlobalFullGenericNamespaceFormat));
+            GenerateList(builder, name, collectionType, fullTypeName, loopNestingLevel, collectionType.ToFullDisplayString());
         }
         else if
             ((collectionType =
                 IsGenericICollectionType(type)) is not null) // is ICollection<T> or IReadOnlyCollection<T>
         {
-            GenerateCollection(builder, name, collectionType, loopNestingLevel, collectionType.ToDisplayString(Formats.GlobalFullGenericNamespaceFormat));
+            GenerateCollection(builder, name, collectionType, loopNestingLevel, collectionType.ToFullDisplayString());
         }
         else if ((collectionType = IsGenericIEnumerableType(type)) is not null) // is IEnumerable<T>
         {
@@ -253,7 +253,7 @@ public static class Serialize
         Debug.Assert(type is INamedTypeSymbol { TypeArguments.Length: 1 });
         ITypeSymbol generic = ((INamedTypeSymbol)type).TypeArguments[0];
             
-        string newFullTypeName = generic.ToDisplayString(Formats.GlobalFullGenericNamespaceFormat);
+        string newFullTypeName = generic.ToFullDisplayString();
         
         char loopCharacter = GetLoopCharacter(loopNestingLevel);
         char[] loopCharacterName = [loopCharacter];
@@ -285,7 +285,7 @@ public static class Serialize
         Debug.Assert(type is INamedTypeSymbol { TypeArguments.Length: 1 });
         ITypeSymbol generic = ((INamedTypeSymbol)type).TypeArguments[0];
             
-        string newFullTypeName = generic.ToDisplayString(Formats.GlobalFullGenericNamespaceFormat);
+        string newFullTypeName = generic.ToFullDisplayString();
 
         GenerateCountStorage(builder, name, collectionType);
             
@@ -377,15 +377,12 @@ public static class Serialize
         Debug.Assert(type is INamedTypeSymbol { TypeArguments.Length: 1 });
         ITypeSymbol generic = ((INamedTypeSymbol)type).TypeArguments[0];
             
-        string newFullTypeName = generic.ToDisplayString(Formats.GlobalFullNamespaceFormat);
+        string newFullTypeName = generic.ToFullDisplayString();
 
         if (generic.IsUnmanagedType && fullTypeName.Span.SequenceEqual(Types.ListGeneric))
         {
             GenerateCountStorage(builder, name, collectionType);
             GenerateSpanConversionWrite(builder, name, Types.CollectionsMarshal);
-                
-            // builder.Append($"{OffsetParameterName} += ");
-            // GenerateCollectionByteSize(builder, name, newFullTypeName, "Count");
             return;
         }
 
@@ -395,17 +392,6 @@ public static class Serialize
     private static void GenerateReadUnmanagedType(CodeBuilder builder, char[] name,
         ReadOnlyMemory<char> fullTypeName)
     {
-        // ReadOnlySpan<char> pureName = GetPureName(name);
-        
-        // create variable. Using Unsafe.AsRef to convert to ref instead of variable
-        // builder.Append(fullTypeName);
-        // builder.Append(' ');
-        // builder.Append(pureName);
-        // builder.Append(" = ");
-        // builder.Append(name);
-        // builder.Append(';');
-        
-        // write 
         builder.GetExpressionBuilder().AppendMethodCall($"{StreamParameterName}.Write", (expressionBuilder, index) =>
         {
             expressionBuilder.AppendMethodCall($"{Types.MemoryMarshal}.AsBytes", (expressionBuilder, index) =>
@@ -423,11 +409,6 @@ public static class Serialize
                 }, 1);
             }, 1);
         }, 1);
-        
-        // increase offset
-        
-        // builder.Append($"{OffsetParameterName} += ");
-        // GenerateSizeOf(builder, fullTypeName);
     }
 
     private static void GenerateSpanConversionWrite(CodeBuilder builder, char[] name, string extensionsType)
@@ -449,12 +430,7 @@ public static class Serialize
     {
         GenerateCountStorage(builder, name, "Length");
         
-        // write
         GenerateSpanConversionWrite(builder, name, extensionsType);
-        
-        // increase offset
-        // builder.Append($"{OffsetParameterName} += ");
-        // GenerateCollectionByteSize(builder, name, fullTypeName, "Length");
     }
 
     private static void GenerateArray(CodeBuilder builder, char[] name, ITypeSymbol type, ReadOnlyMemory<char> fullTypeName, int loopNestingLevel)

@@ -60,7 +60,7 @@ public class Generator : ISourceGenerator
                 continue;
             }
             
-            string fullTypeName = symbol.ToDisplayString(Formats.GlobalFullNamespaceFormat);
+            string fullTypeName = symbol.ToFullDisplayString();
             GenerateClassAndMethods(builder, fullTypeName, inheritingType, symbol, builder =>
             {
                 new Deserialize().GenerateForSymbol(builder, DeserializeFunctionName + MainFunctionPostFix,

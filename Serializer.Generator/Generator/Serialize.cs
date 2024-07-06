@@ -379,7 +379,7 @@ public static class Serialize
             
         string newFullTypeName = generic.ToFullDisplayString();
 
-        if (generic.IsUnmanagedType && fullTypeName.Span.SequenceEqual(Types.ListGeneric))
+        if (generic.IsUnmanagedType && fullTypeName.Span.StartsWith(Types.ListGeneric))
         {
             GenerateCountStorage(builder, name, collectionType);
             GenerateSpanConversionWrite(builder, name, Types.CollectionsMarshal);
@@ -403,7 +403,14 @@ public static class Serialize
                         expressionBuilder.AppendMethodCall($"{Types.Unsafe}.AsRef", fullTypeName.Span,
                             (expressionBuilder, index) =>
                             {
-                                expressionBuilder.AppendIn(builder => builder.AppendValue(name));
+                                if (!name.Contains('['))
+                                {
+                                    expressionBuilder.AppendIn(builder => builder.AppendValue(name));
+                                }
+                                else
+                                {
+                                    expressionBuilder.AppendValue(name);
+                                }
                             }, 1);
                     });
                 }, 1);

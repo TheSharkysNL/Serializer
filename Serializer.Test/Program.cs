@@ -61,7 +61,7 @@ namespace Test
         
         protected IEnumerable<string> enumerable = ["enumerable string 1"];
         protected ICollection<char> collection = ['h', 'e', 'l', 'l', 'o'];
-        // protected ImmutableArray<string> collection2 = ["enumerable string 2", "enumerable string 4"];
+        protected ImmutableArray<string> collection2 = ["enumerable string 2", "enumerable string 4"];
         protected IDictionary<string, char> dict2 = new Dictionary<string, char> { { "hello", 'e' }, { "test", 'c' } };
         protected object test = "123, 321, 456";
         protected Dictionary<string, char> dict =  new() { { "hello", 'e' }, { "test", 'c' } };

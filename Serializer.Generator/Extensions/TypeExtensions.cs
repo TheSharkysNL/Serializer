@@ -121,4 +121,143 @@ public static class TypeExtensions
     
     public static bool IsNullableType(this ITypeSymbol type, ReadOnlySpan<char> fullTypeName) =>
         !type.IsValueType || fullTypeName.SequenceEqual(Types.Nullable);
+
+    public static string ToFullDisplayString(this ITypeSymbol type)
+    {
+        int stringLength = GetTypeDisplayStringLength(type);
+
+        return string.Create(stringLength, type, (span, type) =>
+        {
+            type.WriteTypeDisplayToSpan(span);
+        });
+    }
+
+    private static int WriteTypeDisplayToSpan(this ITypeSymbol type, Span<char> span, int index = 0)
+    {
+        if (type.TypeKind == TypeKind.Array)
+        {
+            index = ((IArrayTypeSymbol)type).ElementType.WriteTypeDisplayToSpan(span, index);
+            span[index] = '[';
+            span[index + 1] = ']';
+            index += 2;
+            return index;
+        }
+        const string global = "global::";
+        
+        global.AsSpan().CopyTo(span[index..]);
+        index += global.Length;
+
+        ISymbol? symbol = type.ContainingSymbol;
+        index = symbol.WriteContainingSymbolToSpan(span, index);
+
+        string name = type.Name;
+        name.AsSpan().CopyTo(span[index..]);
+        index += name.Length;
+
+        if (type is INamedTypeSymbol generic)
+        {
+            index = WriteGenericToSpan(generic, span, index);
+        }
+
+        return index;
+    }
+
+    private static int WriteGenericToSpan(this INamedTypeSymbol type, Span<char> span, int index)
+    {
+        if (type.TypeArguments.Length == 0)
+        {
+            return index;
+        }
+        
+        span[index] = '<';
+        index++;
+            
+        ImmutableArray<ITypeSymbol> generics = type.TypeArguments;
+        int argumentsLength = generics.Length;
+
+        index = generics[0].WriteTypeDisplayToSpan(span, index);
+        for (int i = 1; i < argumentsLength; i++)
+        {
+            span[index] = ',';
+            index++;
+            index = generics[i].WriteTypeDisplayToSpan(span, index);
+        }
+
+        span[index] = '>';
+        index++;
+
+        return index;
+    }
+    
+    private static int WriteContainingSymbolToSpan(this ISymbol? symbol, Span<char> span, int index)
+    {
+        if (symbol is null or INamespaceSymbol { IsGlobalNamespace:true })
+        {
+            return index;
+        }
+        
+        index = WriteContainingSymbolToSpan(symbol.ContainingSymbol, span, index);
+        string name = symbol.Name;
+        name.AsSpan().CopyTo(span[index..]);
+        index += name.Length;
+        
+        if (symbol is INamedTypeSymbol generic)
+        {
+            index = WriteGenericToSpan(generic, span, index);
+        }
+
+        span[index] = '.';
+        return index + 1;
+    }
+
+    private static int GetTypeDisplayStringLength(this ITypeSymbol type)
+    {
+        if (type.TypeKind == TypeKind.Array)
+        {
+            return GetTypeDisplayStringLength(((IArrayTypeSymbol)type).ElementType) + 2;
+        }
+        
+        int length = 8 + type.Name.Length; // 8 for global::
+        ISymbol? containingSymbol = type.ContainingSymbol;
+        while (containingSymbol is not null && 
+               containingSymbol is not INamespaceSymbol { IsGlobalNamespace: true })
+        {
+            length += containingSymbol.Name.Length + 1;
+            if (containingSymbol is INamedTypeSymbol namedTypeSymbol)
+            {
+                length += GetGenericLength(namedTypeSymbol);
+            }
+            
+            containingSymbol = containingSymbol.ContainingSymbol;
+        }
+
+        if (type is INamedTypeSymbol generic)
+        {
+            length += GetGenericLength(generic);
+        }
+
+        return length;
+    }
+
+    private static int GetGenericLength(this INamedTypeSymbol generic)
+    {
+        if (generic.TypeArguments.Length == 0)
+        {
+            return 0;
+        }
+        
+        int length = 2;
+            
+        ImmutableArray<ITypeSymbol> generics = generic.TypeArguments;
+        int argumentsLength = generics.Length;
+        length += GetTypeDisplayStringLength(generics[0]);
+            
+        for (int i = 1; i < argumentsLength; i++)
+        {
+            length += GetTypeDisplayStringLength(generics[i]);
+            length++;
+        }
+
+        return length;
+    }
 }

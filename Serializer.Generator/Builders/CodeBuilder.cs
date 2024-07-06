@@ -1,4 +1,5 @@
 using System.Text;
+using Serializer.Generator;
 
 namespace Serializer.Builders;
 
@@ -752,6 +753,20 @@ public readonly struct CodeBuilder
         AppendTypeAndName(name, typeName);
 
         builder.Append(" { get; }");
+    }
+
+    public void AppendUsing(ReadOnlySpan<char> varName, ReadOnlySpan<char> typeName,
+        Action<ExpressionBuilder> expression)
+    {
+        builder.Append("using ");   
+        
+        AppendTypeAndName(varName, typeName);
+
+        builder.Append(" = ");
+
+        expression(GetExpressionBuilder());
+
+        builder.Append(';');
     }
 
     public ExpressionBuilder GetExpressionBuilder() =>

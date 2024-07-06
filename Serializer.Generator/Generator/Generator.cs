@@ -140,23 +140,23 @@ public class Generator : ISourceGenerator
     private void GenerateMethodBody(CodeBuilder builder, string methodName, ReadOnlyMemory<string> parameterTypes, ImmutableArray<IParameterSymbol>? currentParameters)
     {
         Debug.Assert(parameterTypes.Length >= 1);
+
+        if (parameterTypes.Span[0] != Types.Stream)
+        {
+            string objectName = IsDeserializeFunction(methodName) ? Types.FileReader : Types.FileWriter;
+            builder.AppendUsing(StreamParameterName, objectName, expressionBuilder =>
+                expressionBuilder.AppendNewObject(objectName, (expressionBuilder, index) =>
+                        expressionBuilder.AppendValue(GetParameterName(index, currentParameters)),
+                    parameterTypes.Length));
+        }
         
         builder.AppendReturn(expressionBuilder =>
         {
             expressionBuilder.AppendMethodCall(methodName, (expressionBuilder, index) =>
             {
-                if (parameterTypes.Span[0] == Types.Stream)
-                {
-                    expressionBuilder.AppendValue(GetParameterName(0, currentParameters));
-                }
-                else
-                {
-                    string objectName = IsDeserializeFunction(methodName) ? Types.FileReader : Types.FileWriter;
-                    expressionBuilder.AppendNewObject(objectName,
-                        (expressionBuilder, index) =>
-                            expressionBuilder.AppendValue(GetParameterName(index, currentParameters)),
-                        parameterTypes.Length);
-                }
+                expressionBuilder.AppendValue(parameterTypes.Span[0] == Types.Stream
+                    ? GetParameterName(0, currentParameters)
+                    : StreamParameterName);
             }, MainFunctionArgumentCount);
         });
     }

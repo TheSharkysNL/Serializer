@@ -145,23 +145,25 @@ public sealed class FileReader : Stream
     public override long Seek(long offset, SeekOrigin origin)
     {
         ValidateNotDisposed();
-        if (origin == SeekOrigin.End)
+        
+        long oldPos = position;
+        long newPos = origin switch
         {
-            position = length - offset;
-            ResetBuffer();
-            return position;
+            SeekOrigin.Begin => offset,
+            SeekOrigin.End => Length + offset,
+            _ => oldPos + offset
+        };
+        if (newPos < 0)
+        {
+            throw new ArgumentException("offset cannot be less than 0", nameof(offset));
         }
-
-        bool startFromCurrent = origin != SeekOrigin.Begin;
-        long start = Unsafe.As<bool, byte>(ref startFromCurrent) * position;
-
-        long newPos = start + offset;
-        long difference = newPos - position;
+        
+        long difference = newPos - oldPos;
         position = newPos;
 
-        int bufferLengthLeft = bufferLength - bufferPos;
-        if ((ulong)difference < (uint)bufferLengthLeft)
-            bufferPos += (int)difference;
+        int newBufferPos = bufferPos + (int)difference;
+        if ((uint)newBufferPos < bufferLength)
+            bufferPos = newBufferPos;
         else
             ResetBuffer();
 

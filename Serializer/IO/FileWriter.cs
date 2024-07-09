@@ -69,8 +69,8 @@ public sealed class FileWriter : Stream
 
         RandomAccess.Write(handle, buffer.AsSpan(0, bufferPos), position);
         position += bufferPos;
-        
-        ResetBuffer();
+
+        bufferPos = 0;
     }
 
     public override int Read(byte[] buffer, int offset, int count) =>
@@ -107,39 +107,41 @@ public sealed class FileWriter : Stream
 
     public override void Write(ReadOnlySpan<byte> span)
     {
+        int bufferSize = this.bufferSize;
         ValidateNotDisposed();
         EnsureBufferAllocated(bufferSize);
 
         if (span.Length == 0)
         {
             return;
-        } 
-
+        }
+        
         if (bufferPos > 0)
         {
-            int numBytes = buffer.Length - bufferPos;   // space left in buffer
-            if (numBytes > 0)
+            int spaceLeft = bufferSize - bufferPos;   // space left in buffer
+            if (spaceLeft > 0)
             {
-                if (numBytes >= span.Length)
+                if (spaceLeft >= span.Length)
                 {
                     span.CopyTo(buffer!.AsSpan(bufferPos));
                     bufferPos += span.Length;
                     return;
                 }
-                span[..numBytes].CopyTo(buffer!.AsSpan(bufferPos));
-                bufferPos += numBytes;
-                span = span[numBytes..];
+                span[..spaceLeft].CopyTo(buffer!.AsSpan(bufferPos));
+                bufferPos += spaceLeft;
+                span = span[spaceLeft..];
             }
 
             Flush();
         }
         
-        if (span.Length >= buffer.Length)
+        if (span.Length >= bufferSize)
         {
             RandomAccess.Write(handle, span, position);
+            position += span.Length;
+            return;
         }
         
-        EnsureBufferAllocated(bufferSize);
         span.CopyTo(buffer.AsSpan(bufferPos));
         bufferPos = span.Length;
     }
@@ -168,12 +170,6 @@ public sealed class FileWriter : Stream
     private void AllocateBuffer(int size)
     {
         Interlocked.CompareExchange(ref buffer, GC.AllocateUninitializedArray<byte>(size), null);
-    }
-    
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private void ResetBuffer()
-    {
-        bufferPos = 0;
     }
     
     private void ValidateNotDisposed()

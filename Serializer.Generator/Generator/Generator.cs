@@ -69,21 +69,25 @@ public class Generator : ISourceGenerator
                 GenerateMainMethod(builder, SerializeFunctionName + MainFunctionPostFix, fullTypeName,
                     codeBuilder =>
                     {
-                        codeBuilder.AppendVariable("initialPosition", Types.Int64,
-                            expressionBuilder =>
-                                expressionBuilder.AppendDotExpression(StreamParameterName, "Position"));
+                        codeBuilder.AppendVariable("initialPosition", Types.Int64, "default");
+                        codeBuilder.AppendIf($"{StreamParameterName}.CanSeek", "true", builder =>
+                            builder.GetExpressionBuilder().AppendAssignment("initialPosition",
+                                expressionBuilder =>
+                                    expressionBuilder.AppendDotExpression(StreamParameterName, "Position")));
             
                         Serialize.GenerateForSymbol(codeBuilder, symbol);
             
                         codeBuilder.GetExpressionBuilder().AppendMethodCall($"{StreamParameterName}.Flush");
-                        
-                        codeBuilder.AppendReturn(expressionBuilder =>
-                        {
-                            expressionBuilder.AppendBinaryExpression(expressionBuilder =>
-                                    expressionBuilder.AppendDotExpression(StreamParameterName, "Position"),
-                                "-",
-                                "initialPosition");
-                        });
+
+                        codeBuilder.AppendIf($"{StreamParameterName}.CanSeek", "true", builder =>
+                            codeBuilder.AppendReturn(expressionBuilder =>
+                            {
+                                expressionBuilder.AppendBinaryExpression(expressionBuilder =>
+                                        expressionBuilder.AppendDotExpression(StreamParameterName, "Position"),
+                                    "-",
+                                    "initialPosition");
+                            }));
+                        codeBuilder.AppendReturn(expressionBuilder => expressionBuilder.AppendValue("0"));
                     });
             });
         }

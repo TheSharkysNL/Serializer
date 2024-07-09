@@ -310,10 +310,10 @@ public readonly struct ExpressionBuilder
         AppendSemiColon();
     }
     
-    public void AppendAssignment(string name, Action<ExpressionBuilder> value) =>
-        AppendAssignment(name.AsSpan(), value);
+    public void AppendAssignment(string name, Action<ExpressionBuilder> value, bool semiColon = true) =>
+        AppendAssignment(name.AsSpan(), value, semiColon);
     
-    public void AppendAssignment(ReadOnlySpan<char> name, Action<ExpressionBuilder> value)
+    public void AppendAssignment(ReadOnlySpan<char> name, Action<ExpressionBuilder> value, bool semiColon = true)
     {
         builder.Append(name);
 
@@ -321,10 +321,13 @@ public readonly struct ExpressionBuilder
 
         value(this);
 
-        AppendSemiColon();
+        if (semiColon)
+        {
+            AppendSemiColon();
+        }
     }
     
-    public void AppendAssignment(Action<ExpressionBuilder> name, Action<ExpressionBuilder> value)
+    public void AppendAssignment(Action<ExpressionBuilder> name, Action<ExpressionBuilder> value, bool semiColon = true)
     {
         name(this);
 
@@ -332,10 +335,13 @@ public readonly struct ExpressionBuilder
 
         value(this);
 
-        AppendSemiColon();
+        if (semiColon)
+        {
+            AppendSemiColon();
+        }
     }
     
-    public void AppendAssignment(Action<ExpressionBuilder> name, ReadOnlySpan<char> value)
+    public void AppendAssignment(Action<ExpressionBuilder> name, ReadOnlySpan<char> value, bool semiColon = true)
     {
         name(this);
 
@@ -343,7 +349,10 @@ public readonly struct ExpressionBuilder
 
         builder.Append(value);
 
-        AppendSemiColon();
+        if (semiColon)
+        {
+            AppendSemiColon();
+        }
     }
 
     public void AppendAssignment(ReadOnlySpan<char> name, ReadOnlySpan<char> value)
@@ -404,6 +413,62 @@ public readonly struct ExpressionBuilder
         builder.Append('[');
         builder.Append(count);
         builder.Append(']');
+    }
+
+    public void AppendComparison(Action<ExpressionBuilder> left, ReadOnlySpan<char> @operator,
+        Action<ExpressionBuilder> right)
+    {
+        builder.Append('(');
+        left(this);
+        builder.Append(") ");
+
+        builder.Append(@operator);
+
+        builder.Append(" (");
+        right(this);
+        builder.Append(')');
+    }
+    
+    public void AppendComparison(Action<ExpressionBuilder> left, ReadOnlySpan<char> @operator,
+        ReadOnlySpan<char> right)
+    {
+        builder.Append('(');
+        left(this);
+        builder.Append(") ");
+
+        builder.Append(@operator);
+
+        builder.Append(" (");
+        builder.Append(right);
+        builder.Append(')');
+    }
+    
+    public void AppendComparison(ReadOnlySpan<char> left, ReadOnlySpan<char> @operator,
+        ReadOnlySpan<char> right)
+    {
+        builder.Append('(');
+        builder.Append(left);
+        builder.Append(") ");
+
+        builder.Append(@operator);
+
+        builder.Append(" (");
+        builder.Append(right);
+        builder.Append(')');
+    }
+    
+    public void AppendComparison(ReadOnlySpan<char> left, ReadOnlySpan<char> @operator,
+        Action<ExpressionBuilder> right)
+    {
+        builder.Append('(');
+        builder.Append(left);
+        builder.Append(") ");
+
+        builder.Append(@operator);
+
+        builder.Append(" (");
+        right(this);
+        builder.Append(')');
     }
 
     public void AppendSemiColon()

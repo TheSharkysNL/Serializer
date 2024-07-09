@@ -769,6 +769,15 @@ public readonly struct CodeBuilder
         builder.Append(';');
     }
 
+    public void AppendWhile(Action<ExpressionBuilder> whileExpression, Action<CodeBuilder> callback)
+    {
+        builder.Append("while (");
+        whileExpression(GetExpressionBuilder());
+        builder.Append(')');
+        
+        AppendScope(callback);
+    }
+
     public ExpressionBuilder GetExpressionBuilder() =>
         ExpressionBuilder.FromBuilder(builder);
 

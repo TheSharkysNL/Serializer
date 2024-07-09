@@ -114,6 +114,11 @@ public class Deserialize
         } 
         else if (IsConstructedFromArray(typeName.FullName.Span, type))
         {
+            if (typeName.FullName.Span.SequenceEqual(Types.IEnumerableGeneric))
+            {
+                GenerateEnumerable(builder, type, typeName, name, loopNestingLevel);
+                return;
+            }
             GenerateArray(builder, name, type, typeName, loopNestingLevel);
         } 
         else if (((collectionType = type.InheritsFrom(Types.IReadOnlyCollectionGeneric)) is not null && 
@@ -136,6 +141,43 @@ public class Deserialize
             typesToGenerate.Add(type);
             GenerateAnyType(builder, type, typeName, name, loopNestingLevel);
         }
+    }
+
+    private void GenerateEnumerable(CodeBuilder builder, ITypeSymbol type, TypeName typeName, string name,
+        int loopNestingLevel)
+    {
+        builder.AppendIf("sizeOrNullByte", Serialize.IsNotSeekableByte,
+            builder => GenerateArray(builder, name, type, typeName, loopNestingLevel), true);
+
+        builder.AppendElse(builder =>
+        {
+            ITypeSymbol? elementType = GetElementType(type);
+            Debug.Assert(elementType is not null);
+            TypeName elementTypeName = typeName.Generic;
+            
+            string listName = "list" + (char)(loopNestingLevel + 'A');
+            string listType = $"{Types.ListGeneric}<{elementTypeName.FullGenericName}>";
+            builder.AppendVariable(listName, listType,
+                expressionBuilder => expressionBuilder.AppendNewObject(listType));
+            builder.AppendWhile(expression =>
+            {
+                expression.AppendComparison(left => left.AppendAssignment("sizeOrNullByte",
+                        expressionBuilder => expressionBuilder.AppendMethodCall($"{StreamParameterName}.ReadByte"), false),
+                    "!=",
+                    Serialize.IsNotSeekableByte);
+            }, builder =>
+            {
+                string varName = name + (char)(loopNestingLevel + 'A');
+                builder.AppendVariable(varName.AsSpan(), elementTypeName.FullGenericName.Span, "default");
+                
+                GenerateDeserialization(builder, varName, type, elementTypeName, loopNestingLevel + 1);
+
+                builder.GetExpressionBuilder().AppendMethodCall($"{listName}.Add",
+                    (expressionBuilder, _) => expressionBuilder.AppendValue(varName), 1);
+            });
+            
+            builder.GetExpressionBuilder().AppendAssignment(name, listName);
+        });
     }
     
     private void GenerateAnyType(CodeBuilder builder, ITypeSymbol type, TypeName typeName, string name, int loopNestingLevel)

@@ -13,6 +13,8 @@ public static class Serialize
     private const string StreamParameterName = Generator.StreamParameterName;
     
     public const string IsNullByte = "5";
+    public const string IsNotSeekableByte = "6";
+    
     private const string ByteMax = "255";
     private const string UInt16Max = "65535";
     private const string UInt24Max = "16777215";
@@ -257,8 +259,8 @@ public static class Serialize
         
         char loopCharacter = GetLoopCharacter(loopNestingLevel);
         char[] loopCharacterName = [loopCharacter];
-
-        builder.AppendScope(builder =>
+        
+        builder.AppendIf($"{StreamParameterName}.CanSeek", "true", builder =>
         {
             builder.GetExpressionBuilder().AppendMethodCall($"{StreamParameterName}.WriteByte",
                 (expressionBuilder, _) => expressionBuilder.AppendValue("4"), 1);
@@ -266,17 +268,35 @@ public static class Serialize
             builder.AppendVariable("startPosition", Types.Int64, $"{StreamParameterName}.Position");
 
             GenerateInt32Write(builder, "count".AsMemory()); // write temp 32 bit int to increment position
-            
+        
             builder.AppendForeach(name, loopCharacterName, newFullTypeName, builder =>
             {
                 GenerateSerialization(builder, loopCharacterName, generic, newFullTypeName.AsMemory());
                 builder.GetExpressionBuilder().AppendIncrement("count");
             });
-            
+        
             builder.AppendVariable("currentPosition", Types.Int64, $"{StreamParameterName}.Position");
             builder.GetExpressionBuilder().AppendAssignment($"{StreamParameterName}.Position", "startPosition");
             GenerateInt32Write(builder, "count".AsMemory());
             builder.GetExpressionBuilder().AppendAssignment($"{StreamParameterName}.Position", "currentPosition");
+        });
+        builder.AppendElse(builder =>
+        {
+            builder.GetExpressionBuilder().AppendMethodCall($"{StreamParameterName}.WriteByte",
+                (expressionBuilder, _) => expressionBuilder.AppendValue(IsNotSeekableByte), 1);
+            
+            builder.AppendForeach(name, loopCharacterName, newFullTypeName, builder =>
+            {
+                if (generic.IsNullableType())
+                {
+                    builder.GetExpressionBuilder().AppendMethodCall($"{StreamParameterName}.WriteByte",
+                        (expressionBuilder, _) => expressionBuilder.AppendValue("0"), 1);
+                }
+                GenerateSerialization(builder, loopCharacterName, generic, newFullTypeName.AsMemory());
+            });
+            
+            builder.GetExpressionBuilder().AppendMethodCall($"{StreamParameterName}.WriteByte",
+                (expressionBuilder, _) => expressionBuilder.AppendValue(IsNotSeekableByte), 1);
         });
     }
     

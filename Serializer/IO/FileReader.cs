@@ -119,7 +119,7 @@ public sealed class FileReader : Stream
             {
                 Unsafe.CopyBlock(ref spanRef, ref Unsafe.Add(ref bufferRef, bufferPos), (uint)bufferLengthLeft);
 
-                bufferLength = RandomAccess.Read(handle, buffer, position);
+                bufferLength = RandomAccess.Read(handle, buffer, position + bufferLengthLeft);
                 bufferPos = 0;
 
                 spanLength = Math.Min(spanLength - bufferLengthLeft, bufferLength);

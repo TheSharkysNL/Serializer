@@ -1,8 +1,8 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Serializer.Generator", "Serializer.Generator\Serializer.Generator.csproj", "{3FB2FCF1-D8C3-4D15-AEE9-28FC92C2B1B6}"
-EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Serializer.Test", "Serializer.Test\Serializer.Test.csproj", "{9B4C2F1C-9B89-4632-8BD5-6228049C3632}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Serializer.Generator", "Serializer.Generator\Serializer.Generator.csproj", "{3FB2FCF1-D8C3-4D15-AEE9-28FC92C2B1B6}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Serializer", "Serializer\Serializer.csproj", "{ED0C7BE7-3863-4DF8-A78E-285D93E6AA37}"
 EndProject

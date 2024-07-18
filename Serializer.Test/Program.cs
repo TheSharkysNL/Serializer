@@ -1,24 +1,23 @@
 ﻿using System.Collections.Immutable;
-using System.Diagnostics;
 using System.IO.Compression;
-using System.Reflection;
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
-using Microsoft.Win32.SafeHandles;
 using Serializer;
 using Serializer.IO;
 using Test;
 
-const string path = "/Users/mcyuillian/Projects/Serializer/Serializer.Test/test.txt";
-GZipStream writer = new GZipStream(new FileWriter(path, FileMode.OpenOrCreate), CompressionLevel.Optimal);
+string path = Environment.CurrentDirectory + "/test.txt";
+using (FileWriter bufferWriter = new(path, FileMode.OpenOrCreate))
+using (GZipStream writer = new(bufferWriter, CompressionLevel.Optimal, false))
+{
+    Test2 a = new();
+    a.Serialize(writer);
+}
 
-Test2 a = new();
-a.Serialize(writer);
-
-GZipStream reader = new GZipStream(new FileReader(path), CompressionMode.Decompress);
-
-Test.Test b = Test.Test2.Deserialize(reader);
-Console.WriteLine();
+using (FileReader bufferReader = new(path))
+using (GZipStream reader = new(bufferReader, CompressionMode.Decompress, false))
+{
+    Test.Test b = Test.Test2.Deserialize(reader);
+    Console.WriteLine();
+}
 
 namespace Test
 {

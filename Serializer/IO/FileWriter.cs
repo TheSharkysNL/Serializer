@@ -151,6 +151,12 @@ public sealed class FileWriter : Stream
         Write(new ReadOnlySpan<byte>(in value));
     }
 
+    public override void Close()
+    {
+        handle.Close();
+        GC.SuppressFinalize(this);
+    }
+
     [MemberNotNull(nameof(buffer))]
     private void EnsureBufferAllocated(int size)
     {
